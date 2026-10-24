@@ -1168,9 +1168,14 @@ async fn open_external(url: String) -> Result<(), String> {
     store::open_url(&url)
 }
 
+// Expand the macro once: macOS embeds a global Info.plist symbol per expansion.
+fn application_context() -> tauri::Context<tauri::Wry> {
+    tauri::generate_context!()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let mut context = tauri::generate_context!();
+    let mut context = application_context();
     if std::env::args().any(|arg| arg == "--background") {
         for window in &mut context.config_mut().app.windows {
             window.visible = false;
@@ -1288,7 +1293,7 @@ fn finish_claim_once(app: &AppHandle, payload: Value) {
 }
 
 pub fn run_claim_once(id: String, plan_id: String) {
-    let mut context = tauri::generate_context!();
+    let mut context = application_context();
     // Clear configured windows BEFORE startup: no main window, tray, focus or
     // single-instance forwarding to a user's existing desktop window.
     context.config_mut().app.windows.clear();

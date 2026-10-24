@@ -1,65 +1,32 @@
-# Z·SWITCH (zcode-switch)
+# Z·SHIFT
 
-[简体中文](README.md) ｜ **English**
+An independently maintained ZCode account-switching and quota companion, derived from [pjpv/zcode-switch](https://github.com/pjpv/zcode-switch) under the [MIT license](LICENSE).
 
-A Tauri 2 desktop tool for one-click switching between multiple ZCode accounts, with live quota display. Only the login identity changes — projects, sessions, settings and plugins all stay untouched.
+The compact UI has its own name and vector mark. Account avatars, primary actions, quota colors, and spacing take cues from the maintainer's AGY·SWITCH. Chinese and English are supported. Screenshots use synthetic accounts only.
 
-![screenshot](docs/screenshot.png)
+This version also repairs event-claim verification, discovers explicit claim actions in both billing previews and marketing deliveries, and correlates asynchronous results with the requested account and plan.
 
-## Features
+![Z·SHIFT — synthetic demonstration data](docs/screenshot.png)
 
-- **Save / switch accounts**: one-click login switching; the current login is auto-preserved before any switch — accounts are never lost
-- **Add accounts**: OAuth login for new accounts inside the tool (BigModel / z.ai entries), never touching the current login
-- **Quota display**: inline plan quota and reset time per account row, multi-plan grouping
-- **Claim promotions**: one-click claim for eligible promotions; "Auto claim" toggle (off by default) checks and claims periodically — manual actions take priority
-- **Encrypted import / export**: `.zsb` bundle, PBKDF2(100k) + AES-256-GCM password encryption
-- **Bilingual UI (中文 / English)**: one-click switch in Settings — main window, tray, error messages and CLI output all covered; first run follows your OS language
-- **Tray / autostart / CLI automation**
+## Development
 
-## Security Design
+Use Node.js 20.19+ / 22.12+, Rust stable, and the platform's Tauri 2 prerequisites.
 
-- **Local first**: all data stays on your machine; no telemetry, no remote storage; quota queries go directly to official endpoints
-- **WebView CSP**: the `script-src` baseline is `'self'`; minimal third-party script/image sources are allowed for the official promotion web component. UI events do not rely on dynamic execution — they go through a whitelist-based dispatcher
-- **No account loss**: the current login is auto-preserved before switching if not yet saved; file writes go through a temp file + atomic rename
-- **Path traversal protection**: account id whitelist (`[A-Za-z0-9-]`); delete/read cannot escape the account store directory
-- **Encrypted export**: PBKDF2-HMAC-SHA256 (100k iterations) + AES-256-GCM, random salt/nonce; wrong password simply fails, no plaintext traces
-- **Credentials decrypted locally only**: decryption is used solely to display username/email; export files are password-encrypted
-
-## CLI
-
-```
-zcode-switch.exe --cli state|list
-zcode-switch.exe --cli quota [--id <account-id>]
-zcode-switch.exe --cli claim-preview [--id <account-id>]
-zcode-switch.exe --cli capture [--name <name>]
-zcode-switch.exe --cli switch --id <id> [--force] [--restart|--no-restart] [--hot <bool>|--no-hot]
-zcode-switch.exe --cli kill
-zcode-switch.exe --cli export --id <id> --out <a.zsb>
-zcode-switch.exe --cli export-all --out <all.zsb>
-zcode-switch.exe --cli import --file <file.zsb>
-zcode-switch.exe --cli rename|delete|update|behavior|setpath|launch
-zcode-switch.exe --cli --lang en state              # English output (--lang takes a space-separated value, works anywhere in the command line; defaults to the GUI/system language)
+```sh
+npm ci
+npm run tauri dev
+npm run check:syntax
+npm run check:i18n
+npm run test:claim
+npm run build
+cargo test --locked --lib --manifest-path src-tauri/Cargo.toml
+npm run tauri build
 ```
 
-CLI password (export / import): prefer the `ZSW_PASSWORD` environment variable (keeps it out of process lists and command history); `--password <password>` also works.
+Windows is locally verified. Other platform status is reported by CI. Account data stays in `~/.zcode-switch/` for compatibility. Do not run multiple tools against the same account operation concurrently.
 
-## FAQ
+`npm run test:ui` checks synthetic IPC fixtures in isolated GPU-rendered browser viewports. It uses system Edge on Windows and Playwright Chromium elsewhere. It does not read account files or inject desktop input. Install Chromium with `npx playwright install chromium` when needed.
 
-### macOS asks for Microphone / Accessibility / Screen Recording permission?
+`zcode-shift.exe --claim-once --id <account-id> --plan-id <plan-id>` performs a real, explicitly targeted claim using the official passive captcha flow and returns JSON. Interactive challenges are left to the user. It does not enable the global auto-claim toggle.
 
-Deny all of them — nothing breaks.
-The embedded pages (such as the login page) are rendered by the system WebView, which relays their requests as system permission prompts attributed to the app; neither the app itself nor its embedded pages use any of these three capabilities.
-
-## Build
-
-```bash
-npm install
-npm run tauri dev      # development (HMR)
-npm run tauri build    # NSIS installer
-```
-
-Windows-first (path detection / process management / tray are all Win32 semantics).
-
-## License
-
-[MIT](./LICENSE)
+See the [Chinese README](README.md) for CLI and operating details, and [NOTICE.md](NOTICE.md) for provenance. This project is not affiliated with ZCode. Upstream copyright notices and Git history are preserved.

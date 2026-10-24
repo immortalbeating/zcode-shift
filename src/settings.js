@@ -4,6 +4,8 @@ import { esc, toast, openPwModal, installDelegation, dismissSplash } from "./ui.
 import { ic } from "./icons.js";
 import { init, t, lang, stripErr } from "./i18n.js";
 
+import { name as brandName, repo, upstream, mark as brandMark } from "./brand.js";
+
 const $app = document.getElementById("app");
 let state = null;
 let autostart = false;
@@ -32,7 +34,11 @@ const actions = {
   async refresh() { await refresh(); render(); },
 
   async openGitHub() {
-    await invoke("open_external", { url: "https://github.com/pjpv/zcode-switch" });
+    await invoke("open_external", { url: repo });
+  },
+
+  async openUpstream() {
+    await invoke("open_external", { url: upstream });
   },
 
   async setLang(l) {
@@ -166,14 +172,14 @@ function render() {
     return;
   }
   const s = state;
-  document.title = `Z·SWITCH ${t("s.title")}`;
+  document.title = `${brandName} ${t("s.title")}`;
   $app.innerHTML = `
     <header class="topbar">
-      <div class="wordmark">Z·SWITCH <span class="ver">/ ${t("s.title")}</span></div>
+      <div class="brand">${brandMark}<div class="brand-copy"><div class="wordmark">${brandName} <span class="ver">/ ${t("s.title")}</span></div><div class="brand-purpose">${t("brand.purpose")}</div></div></div>
     </header>
     <section class="settings open">
       ${langSeg(s.language || "zh")}
-      <label>BEHAVIOR · ${t("s.behaviorLabel")}</label>
+      <label>${t("s.behaviorLabel")}</label>
       ${toggle(autostart, "actions.toggleAutostart()", t("s.autostart"), t("s.autostartDesc"))}
       ${toggle(s.launch_after_switch, "actions.toggleBehavior('launch')", t("s.launchAfter"), t("s.launchAfterDesc"))}
       ${toggle(s.close_to_tray, "actions.toggleBehavior('tray')", t("s.closeTray"), t("s.closeTrayDesc"))}
@@ -197,7 +203,8 @@ function render() {
         <button class="btn-ghost" click="actions.savePath()">${t("common.save")}</button>
       </div>
       <div class="hint">${t("s.hint")}</div>
-      <div class="gh-row"><a class="gh-link" href="https://github.com/pjpv/zcode-switch" target="_blank" rel="noopener" click="actions.openGitHub()">${t("s.githubLink")}</a>${appVer ? `<span class="ver">v${esc(appVer)}</span>` : ""}</div>
+      <div class="gh-row"><a class="gh-link" href="${repo}" target="_blank" rel="noopener" click="actions.openGitHub()">${t("brand.repository")}</a>${appVer ? `<span class="ver">v${esc(appVer)}</span>` : ""}</div>
+      <div class="upstream-note">${t("brand.basedOn")} <a class="gh-link" href="${upstream}" target="_blank" rel="noopener" click="actions.openUpstream()">ZCode Switch</a></div>
     </section>`;
 }
 

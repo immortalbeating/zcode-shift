@@ -41,13 +41,13 @@ if (!setup.includes(`_${ver}_`)) {
   fail(`最新安装包 ${setup} 不含当前版本 ${ver} —— 本次构建可能未产出 NSIS 包，请检查上方构建日志`);
 }
 
-const rawExe = join(root, "src-tauri/target/release/zcode-switch.exe");
+const rawExe = join(root, "src-tauri/target/release/zcode-shift.exe");
 if (!existsSync(rawExe)) fail(`找不到裸 exe：${rawExe}`);
 
 const outDir = join(root, "release");
 mkdirSync(outDir, { recursive: true });
 const setupDst = join(outDir, setup);
-const portableDst = join(outDir, `zcode-switch_${ver}_portable.exe`);
+const portableDst = join(outDir, `zcode-shift_${ver}_portable.exe`);
 copyFileSync(join(bundleDir, setup), setupDst);
 copyFileSync(rawExe, portableDst);
 

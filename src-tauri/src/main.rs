@@ -43,7 +43,7 @@ fn main() {
         let value = |flag: &str| args.windows(2).find(|w| w[0] == flag).map(|w| w[1].clone());
         match (value("--id"), value("--plan-id")) {
             (Some(id), Some(plan)) if !id.trim().is_empty() && !plan.trim().is_empty() => {
-                zcode_switch_lib::run_claim_once(id, plan);
+                zcode_shift_lib::run_claim_once(id, plan);
             }
             _ => {
                 println!("{{\"ok\":false,\"error\":\"--claim-once requires --id and --plan-id\"}}");
@@ -56,7 +56,7 @@ fn main() {
         let cli_args: Vec<String> = args.iter().skip(pos + 1).cloned().collect();
         #[cfg(windows)]
         ensure_cli_console();
-        let (out, code) = zcode_switch_lib::cli::run(&cli_args);
+        let (out, code) = zcode_shift_lib::cli::run(&cli_args);
         use std::io::Write;
         let mut stdout = std::io::stdout();
         let _ = stdout.write_all(out.as_bytes());
@@ -64,5 +64,5 @@ fn main() {
         let _ = stdout.flush();
         std::process::exit(code);
     }
-    zcode_switch_lib::run()
+    zcode_shift_lib::run()
 }

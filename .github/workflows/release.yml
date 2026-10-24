@@ -36,7 +36,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -55,7 +55,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'Z·SWITCH ${{ github.ref_name }}'
+          releaseName: 'Z·SHIFT ${{ github.ref_name }}'
           releaseBody: |
             见 [README](https://github.com/${{ github.repository }}/blob/main/README.md) 了解完整功能。
 
@@ -72,7 +72,7 @@ jobs:
             - Linux：AppImage 需 `chmod +x`
 
             SHA-256 校验和见各 `checksums-*.txt`。
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           args: --bundles ${{ matrix.bundles }} ${{ matrix.rust_target && format('--target {0}', matrix.rust_target) || '' }}
 
@@ -83,10 +83,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VER="${GITHUB_REF_NAME#v}"
-          cp "src-tauri/target/release/zcode-switch.exe" "zcode-switch_${VER}_portable.exe"
+          cp "src-tauri/target/release/zcode-shift.exe" "zcode-shift_${VER}_portable.exe"
           SETUP=$(ls src-tauri/target/release/bundle/nsis/*-setup.exe | head -1)
-          sha256sum "zcode-switch_${VER}_portable.exe" "$SETUP" | sed 's| .*/| |' > "checksums-Windows-${GITHUB_REF_NAME}.txt"
-          gh release upload "$GITHUB_REF_NAME" "zcode-switch_${VER}_portable.exe" "checksums-Windows-${GITHUB_REF_NAME}.txt" --clobber
+          sha256sum "zcode-shift_${VER}_portable.exe" "$SETUP" | sed 's| .*/| |' > "checksums-Windows-${GITHUB_REF_NAME}.txt"
+          gh release upload "$GITHUB_REF_NAME" "zcode-shift_${VER}_portable.exe" "checksums-Windows-${GITHUB_REF_NAME}.txt" --clobber
 
       - name: Upload checksums
         if: runner.os != 'Windows'

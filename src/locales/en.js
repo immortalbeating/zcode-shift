@@ -1,4 +1,7 @@
 export const en = {
+  "brand.purpose": "Accounts & quota",
+  "brand.repository": "Project on GitHub",
+  "brand.basedOn": "Based on",
   "common.cancel": "Cancel",
   "common.confirm": "Confirm",
   "common.save": "Save",

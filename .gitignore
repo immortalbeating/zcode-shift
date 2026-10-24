@@ -31,3 +31,8 @@ nul
 .zcode/
 
 __pycache__/
+
+# Synthetic visual captures and local verification reports
+.ui-artifacts/
+validation/
+backups/

@@ -1,12 +1,12 @@
 [package]
-name = "zcode-switch"
-version = "1.6.0"
+name = "zcode-shift"
+version = "1.0.0"
 description = "ZCode 账号切换器"
 license = "MIT"
 edition = "2021"
 
 [lib]
-name = "zcode_switch_lib"
+name = "zcode_shift_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

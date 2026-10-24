@@ -102,9 +102,9 @@ pub fn rebuild_tray(app: &AppHandle) {
                         .map(|a| a.name.clone())
                         .or_else(|| s.live_identity.as_ref().and_then(|i| i.label()))
                         .unwrap_or_else(|| if s.live_logged_in { i18n::tr("tray.unsaved") } else { i18n::tr("tray.logged_out") });
-                    format!("Z·SWITCH · {cur}")
+                    format!("Z·SHIFT · {cur}")
                 }
-                Err(_) => "Z·SWITCH".into(),
+                Err(_) => "Z·SHIFT".into(),
             };
             let _ = tray.set_tooltip(Some(&tip));
             if let Ok(menu) = tray_menu_inner(&app2) {
@@ -1246,7 +1246,7 @@ pub fn run() {
             }
             let _tray = TrayIconBuilder::with_id(TRAY_ID)
                 .icon(app.default_window_icon().expect("no window icon").clone())
-                .tooltip("Z·SWITCH")
+                .tooltip("Z·SHIFT")
                 .menu(&tray_menu_inner(app.handle())?)
                 .show_menu_on_left_click(false)
                 .on_menu_event(move |app, event| {
@@ -1292,7 +1292,7 @@ pub fn run_claim_once(id: String, plan_id: String) {
     // Clear configured windows BEFORE startup: no main window, tray, focus or
     // single-instance forwarding to a user's existing desktop window.
     context.config_mut().app.windows.clear();
-    context.config_mut().identifier = "com.zswitch.claim-once".into();
+    context.config_mut().identifier = "com.superidiot1201.zcodeshift.claim-once".into();
     tauri::Builder::default()
         .manage(ClaimOnceFinished(std::sync::atomic::AtomicBool::new(false)))
         .invoke_handler(tauri::generate_handler![

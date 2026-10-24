@@ -4,6 +4,8 @@ import { esc, toast, openPwModal, openConfirmModal, openProviderModal, installDe
 import { ic } from "./icons.js";
 import { init, t, has, lang, localeTag, stripErr } from "./i18n.js";
 
+import { name as brandName, mark as brandMark } from "./brand.js";
+
 const $app = document.getElementById("app");
 let state = null;
 let renaming = null;
@@ -638,7 +640,9 @@ function tierBadgeFor(id) {
   if (!q?.data) return "";
   const plans = q.data.plans || [];
   const pairs = plans.map((p) => [p.tier, p.tier_code]);
-  const list = (pairs.length ? pairs : q.data.plan_tier ? [[q.data.plan_tier, null]] : []).slice(0, 2);
+  const candidates = pairs.length ? pairs : q.data.plan_tier ? [[q.data.plan_tier, null]] : [];
+  const list = candidates.filter(([tier, code], index) =>
+    candidates.findIndex(([otherTier, otherCode]) => otherTier === tier && otherCode === code) === index).slice(0, 2);
   if (!list.length) return `<span class="tier-b free">Free</span>`;
   return list.map(([tier, code]) => tierChipHtml(tier, code)).join("");
 }
@@ -781,18 +785,19 @@ function render() {
 
   const rows = s.accounts.map((a) => {
     const isActive = a.is_active;
-    if (renaming === a.id) {      return `
+    if (renaming === a.id) {
+      return `
       <div class="row${isActive ? " active" : ""}" data-id="${a.id}">
-        <span class="notch" style="background:${notchColor(a.id)}"></span>
-        <div class="row-main">
+        <div class="row-rename-line">
+          <span class="account-avatar" aria-hidden="true" style="background:${notchColor(a.id)}">${esc(Array.from(a.name.trim() || "?")[0].toLocaleUpperCase())}</span>
           <input class="rename-input" value="${esc(a.name)}" maxlength="40"
             keydown="onRenameKey(event,'${a.id}')" blur="actions.deferCancelRename('${a.id}')">
-          <div class="row-meta">${t("btn.renameMeta")}</div>
+          <div class="row-rename-actions">
+            <button class="btn-ghost rename-btn" click="actions.doRename('${a.id}')">${t("common.save")}</button>
+            <button class="btn-ghost rename-btn" click="actions.cancelRename()">${t("common.cancel")}</button>
+          </div>
         </div>
-        <div class="row-actions">
-          <button class="btn-ghost" style="padding:4px 10px" click="actions.doRename('${a.id}')">${t("common.save")}</button>
-          <button class="btn-ghost" style="padding:4px 10px" click="actions.cancelRename()">${t("common.cancel")}</button>
-        </div>
+        <div class="row-meta" style="margin-top:4px">${t("btn.renameMeta")}</div>
       </div>`;
     }
     const ident = [a.identity?.username, a.identity?.email].filter(Boolean).join(" · ");
@@ -806,20 +811,26 @@ function render() {
     if (ident) meta += `${meta ? " · " : ""}${esc(ident)}`;
     return `
     <div class="row${isActive ? " active" : ""}" data-id="${a.id}">
-      <div class="row-top">
-        <span class="notch" style="background:${notchColor(a.id)}"></span>
-        <div class="row-main">
-          <div class="row-name">${esc(a.name)}${tierBadgeFor(a.id)}${isActive ? `<span class="tag-use">${t("btn.inUse")}</span>` : ""}${a.has_user_info === false ? `<span class="tag-relogin" title="${esc(t("btn.reloginTitle"))}">${t("btn.relogin")}</span>` : ""}</div>
-          <div class="row-meta">${meta}</div>
+      <div class="row-header">
+        <div class="row-title-wrap">
+          <span class="account-avatar" aria-hidden="true" style="background:${notchColor(a.id)}">${esc(Array.from(a.name.trim() || "?")[0].toLocaleUpperCase())}</span>
+          <span class="row-name" title="${esc(a.name)}">${esc(a.name)}</span>
+          ${tierBadgeFor(a.id)}
+          ${a.has_user_info === false ? `<span class="tag-relogin" title="${esc(t("btn.reloginTitle"))}">${t("btn.relogin")}</span>` : ""}
         </div>
+        <div class="row-switch-wrap">
+          ${isActive
+            ? `<span class="tag-use-pill">${ic("check", 12)} ${t("btn.inUse")}</span>`
+            : `<button class="btn-switch has-ic" click="actions.askSwitch('${a.id}')">${ic("swap", 12)} <span>${t("btn.switch")}</span></button>`}
+        </div>
+      </div>
+      <div class="row-subline">
+        <div class="row-meta" title="${esc(meta.replace(/<[^>]+>/g, ""))}">${meta}</div>
         <div class="row-actions">
-          <button class="icon-btn" title="${t("btn.quota")}" aria-label="${t("btn.quota")}" click="actions.acctQuota('${a.id}')">${ic("gauge", 16)}</button>
-          <button class="icon-btn" title="${t("btn.rename")}" aria-label="${t("btn.rename")}" click="actions.rename('${a.id}')">${ic("pen", 16)}</button>
-          <button class="icon-btn" title="${t("btn.export")}" aria-label="${t("btn.export")}" click="actions.exportOne('${a.id}')">${ic("export", 16)}</button>
-          <button class="icon-btn danger" title="${t("btn.delete")}" aria-label="${t("btn.delete")}" click="actions.delete('${a.id}')">${ic("x", 16)}</button>
-          <button class="btn-switch has-ic" click="actions.askSwitch('${a.id}')" ${isActive ? "disabled" : ""}>
-            ${isActive ? t("btn.current") : ic("swap", 14) + " " + t("btn.switch")}
-          </button>
+          <button class="icon-btn-ghost" title="${t("btn.quota")}" aria-label="${t("btn.quota")}" click="actions.acctQuota('${a.id}')">${ic("gauge", 13)}</button>
+          <button class="icon-btn-ghost" title="${t("btn.rename")}" aria-label="${t("btn.rename")}" click="actions.rename('${a.id}')">${ic("pen", 13)}</button>
+          <button class="icon-btn-ghost" title="${t("btn.export")}" aria-label="${t("btn.export")}" click="actions.exportOne('${a.id}')">${ic("export", 13)}</button>
+          <button class="icon-btn-ghost danger" title="${t("btn.delete")}" aria-label="${t("btn.delete")}" click="actions.delete('${a.id}')">${ic("x", 13)}</button>
         </div>
       </div>
       ${acctQuotaSlot(a.id)}
@@ -838,46 +849,55 @@ function render() {
 
   $app.innerHTML = `
     <header class="topbar">
-      <div class="wordmark">Z·SWITCH${appVer ? ` <span class="ver">v${esc(appVer)}</span>` : ""}</div>
-      <div class="top-status${unsaved ? " unsaved" : ""}">
-        <span class="status-dot ${dotCls}"></span>
-        <span class="status-text">${esc(statusText)}</span>
+      <div class="brand">${brandMark}<div class="brand-copy"><div class="wordmark">${brandName}${appVer ? ` <span class="ver">v${esc(appVer)}</span>` : ""}</div><div class="brand-purpose">${t("brand.purpose")}</div></div></div>
+      <div class="top-right">
+        <div class="top-status${unsaved ? " unsaved" : ""}">
+          <span class="status-dot ${dotCls}"></span>
+          <span class="status-text">${esc(statusText)}</span>
+        </div>
+        <button class="top-gear" click="actions.openSettings()" aria-label="${t("common.settings")}" title="${t("common.settings")}">
+          ${ic("sliders", 14)}
+        </button>
       </div>
     </header>
 
     <section class="toolbar">
-      <button class="btn-primary has-ic${unsaved ? " attention" : ""}" click="actions.capture()" ${!s.live_logged_in || active ? "disabled" : ""}
-        title="${active ? esc(t("m.saveLoginDisabledTitle", { name: active.name })) : ""}">
-        ${ic("capture", 16)} ${t("btn.saveLogin")}
-      </button>
-      ${claimableCount > 0
-        ? `<button class="btn-ghost has-ic claim-all" click="actions.claimAll()" ${claimAllRunning || refreshClaim.running || autoClaimRunning ? "disabled" : ""}
-            title="${t("btn.claimAllTitle")}">${ic("gift", 16)} ${t("btn.claimAll")}${claimableCount > 1 ? ` (${claimableCount})` : ""}</button>`
-        : ""}
-      ${(s.accounts.length > 0)
-        ? `<button class="btn-ghost has-ic" click="actions.refreshClaim()"
-            ${refreshClaim.running || claimAllRunning || Date.now() < refreshClaim.cooldownUntil ? "disabled" : ""}
-            title="${Date.now() < refreshClaim.cooldownUntil && !refreshClaim.running
-              ? esc(t("btn.refreshClaimCooldownTitle", { n: Math.ceil((refreshClaim.cooldownUntil - Date.now()) / 1000) }))
-              : esc(t("btn.refreshClaimTitle"))}">
-            ${ic("refresh", 16)} ${refreshClaim.running
-              ? esc(t("btn.refreshClaimRunning", { done: refreshClaim.done, total: refreshClaim.total }))
-              : esc(t("btn.refreshClaim"))}
-          </button>`
-        : ""}
-      <button class="tog-inline${s.auto_claim ? " on" : ""}${autoClaimRunning ? " running" : ""}"
-        role="switch" aria-checked="${s.auto_claim}" aria-label="${t("btn.autoClaim")}"
-        title="${autoPillTitle(s)}"
-        click="actions.toggleAutoClaim()">
-        <span class="toggle${s.auto_claim ? " on" : ""}" aria-hidden="true"><span class="knob"></span></span>
-        ${t("btn.autoClaim")}
-      </button>
-      <button class="btn-ghost has-ic" click="actions.addAccount()" title="${t("btn.addAccountTitle")}">${ic("userPlus", 16)} ${t("btn.addAccount")}</button>
-      ${s.zcode_running
-        ? `<button class="btn-ghost has-ic" click="actions.askKill()" title="${t("btn.killZcode")}">${ic("power", 16)} ${t("btn.killZcode")}</button>`
-        : `<button class="btn-ghost has-ic" click="actions.launch()" ${s.zcode_path_ok ? "" : "disabled"}>${ic("play", 14)} ${t("btn.launchZcode")}</button>`}
-      <span class="tb-spacer"></span>
-      <button class="btn-ghost tb-gear has-ic" click="actions.openSettings()" aria-label="${t("common.settings")}" title="${t("common.settings")}">${ic("sliders", 16)}</button>
+      <div class="tb-row">
+        <button class="btn-primary has-ic${unsaved ? " attention" : ""}" click="actions.capture()" ${!s.live_logged_in || active ? "disabled" : ""}
+          title="${active ? esc(t("m.saveLoginDisabledTitle", { name: active.name })) : ""}">
+          ${ic("capture", 14)} <span>${t("btn.saveLogin")}</span>
+        </button>
+        <button class="btn-ghost has-ic" click="actions.addAccount()" title="${t("btn.addAccountTitle")}">
+          ${ic("userPlus", 14)} <span>${t("btn.addAccount")}</span>
+        </button>
+        ${claimableCount > 0
+          ? `<button class="btn-ghost has-ic claim-all" click="actions.claimAll()" ${claimAllRunning || refreshClaim.running || autoClaimRunning ? "disabled" : ""}
+              title="${t("btn.claimAllTitle")}">${ic("gift", 14)} <span>${t("btn.claimAll")}${claimableCount > 1 ? ` (${claimableCount})` : ""}</span></button>`
+          : ""}
+      </div>
+      <div class="tb-row">
+        <button class="tog-inline${s.auto_claim ? " on" : ""}${autoClaimRunning ? " running" : ""}"
+          role="switch" aria-checked="${s.auto_claim}" aria-label="${t("btn.autoClaim")}"
+          title="${autoPillTitle(s)}"
+          click="actions.toggleAutoClaim()">
+          <span class="toggle${s.auto_claim ? " on" : ""}" aria-hidden="true"><span class="knob"></span></span>
+          <span>${t("btn.autoClaim")}</span>
+        </button>
+        ${s.zcode_running
+          ? `<button class="btn-ghost has-ic tb-kill" click="actions.askKill()" title="${t("btn.killZcode")}">${ic("power", 14)} <span>${t("btn.killZcode")}</span></button>`
+          : `<button class="btn-ghost has-ic tb-launch" click="actions.launch()" ${s.zcode_path_ok ? "" : "disabled"}>${ic("play", 13)} <span>${t("btn.launchZcode")}</span></button>`}
+        ${(s.accounts.length > 0)
+          ? `<button class="btn-ghost has-ic tb-refresh" click="actions.refreshClaim()"
+              ${refreshClaim.running || claimAllRunning || Date.now() < refreshClaim.cooldownUntil ? "disabled" : ""}
+              title="${Date.now() < refreshClaim.cooldownUntil && !refreshClaim.running
+                ? esc(t("btn.refreshClaimCooldownTitle", { n: Math.ceil((refreshClaim.cooldownUntil - Date.now()) / 1000) }))
+                : esc(t("btn.refreshClaimTitle"))}">
+              ${ic("refresh", 14)} <span>${refreshClaim.running
+                ? esc(t("btn.refreshClaimRunning", { done: refreshClaim.done, total: refreshClaim.total }))
+                : esc(t("btn.refreshClaim"))}</span>
+            </button>`
+          : ""}
+      </div>
     </section>
 
     <div class="section-head">
@@ -906,8 +926,8 @@ listen("tray-action", (ev) => {
 
 listen("claim://result", (ev) => {
   const p = ev.payload || {};
-  if (claimWaiter && claimWaiter.accountId === p.accountId) claimWaiter.finish(p);
-  if (p.ok === false) {
+  if (claimWaiter && claimWaiter.accountId === p.accountId && claimWaiter.planId === p.planId) claimWaiter.finish(p);
+  if (p.ok !== true) {
     let msg = p.message || t("m.unknownErr");
     if (p.code === 1005 && p.nextAt) {
       msg += t("m.claimNextAt", { time: new Date(p.nextAt).toLocaleString(localeTag(), { hour12: false }) });

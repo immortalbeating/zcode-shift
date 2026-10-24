@@ -1,4 +1,7 @@
 export const zh = {
+  "brand.purpose": "账号切换与额度管理",
+  "brand.repository": "项目 GitHub 仓库",
+  "brand.basedOn": "基于开源项目",
   "common.cancel": "取消",
   "common.confirm": "确认",
   "common.save": "保存",
@@ -94,7 +97,7 @@ export const zh = {
   "m.emptyTitle": "账号库为空",
   "m.emptyBody": "先用下方 <b>保存当前登录</b> 存入第一个账号，或<b>导入</b>账号文件",
   "m.saveLoginDisabledTitle": "当前登录已是存档「{name}」，无需重复保存",
-  "m.accounts": "ACCOUNTS · 账号库",
+  "m.accounts": "账号库",
   "m.count": "{count} 个存档",
 
   "btn.saveLogin": "保存登录",

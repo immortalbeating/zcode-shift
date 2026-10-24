@@ -5316,8 +5316,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "zcode-switch"
-version = "1.6.0"
+name = "zcode-shift"
+version = "1.0.0"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",

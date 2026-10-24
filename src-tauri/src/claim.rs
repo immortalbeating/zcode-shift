@@ -8,6 +8,7 @@ use std::time::Duration;
 
 pub const BILLING_PREVIEW_URL: &str = "https://zcode.z.ai/api/v1/zcode-plan/billing/preview";
 pub const BILLING_CLAIM_URL: &str = "https://zcode.z.ai/api/v1/zcode-plan/billing/claim";
+pub const MARKETING_TOUCH_URL: &str = "https://zcode.z.ai/api/v1/marketing/touch?seq=0";
 pub const CLIENT_CONFIGS_URL: &str = "https://zcode.z.ai/api/v1/client/configs";
 
 const CLAIM_TIMEOUT_SECS: u64 = 25;
@@ -43,6 +44,7 @@ pub struct CaptchaConfig {
 pub struct ClaimOutcome {
     pub account_id: String,
     pub account_name: String,
+    pub plan_id: String,
     pub plan_name: String,
     pub starts_at: Option<i64>,
     pub ends_at: Option<i64>,
@@ -84,6 +86,7 @@ fn claim_error(code: i64, body: &Value) -> ClaimError {
 pub fn failure_payload(
     account_id: &str,
     account_name: &str,
+    plan_id: &str,
     plan_name: &str,
     err: &ClaimError,
 ) -> Value {
@@ -91,6 +94,7 @@ pub fn failure_payload(
         "ok": false,
         "accountId": account_id,
         "accountName": account_name,
+        "planId": plan_id,
         "planName": plan_name,
         "code": err.code,
         "nextAt": err.next_at,
@@ -227,7 +231,92 @@ pub fn preview_plans(
         quota::zcode_app_version(),
         quota::client_platform()
     );
-    preview_once(&url, &token, device_mid)
+    let plans = preview_once(&url, &token, device_mid.clone())?;
+    let marketing = marketing_plans(&token, device_mid)?;
+    Ok(merge_plans(plans, marketing))
+}
+
+fn marketing_plans(token: &str, mid: Option<String>) -> Result<Vec<ClaimPlan>, String> {
+    let mut req = agent().get(MARKETING_TOUCH_URL);
+    for (k, v) in quota::zai_billing_headers_with_mid(token, mid) {
+        req = req.set(&k, &v);
+    }
+    let resp = req
+        .set("X-Client-Language", "zh-CN")
+        .set("X-ZCode-App-Version", &quota::zcode_app_version())
+        .call()
+        .map_err(|e| http_err("Marketing campaign discovery failed", e))?
+        .into_string()
+        .map_err(|e| format!("Marketing campaign discovery failed: {e}"))?;
+    let body: Value = serde_json::from_str(&resp)
+        .map_err(|e| format!("Marketing campaign discovery returned invalid JSON: {e}"))?;
+    parse_marketing_plans(&body)
+}
+
+fn merge_plans(preview: Vec<ClaimPlan>, marketing: Vec<ClaimPlan>) -> Vec<ClaimPlan> {
+    let mut seen = std::collections::HashSet::new();
+    let mut plans: Vec<_> = preview.into_iter().chain(marketing)
+        .filter(|plan| seen.insert(plan.plan_id.clone()))
+        .collect();
+    plans.sort_by(|a, b| b.priority.cmp(&a.priority).then(a.plan_id.cmp(&b.plan_id)));
+    plans
+}
+
+// Marketing copy has appeared as both strings and structured text objects.
+fn marketing_text(value: Option<&Value>) -> String {
+    fn text(value: &Value, depth: usize) -> Option<&str> {
+        if depth > 4 { return None; }
+        value.as_str().or_else(|| {
+            ["text", "content", "value"].iter()
+                .find_map(|key| value.get(key).and_then(|v| text(v, depth + 1)))
+        })
+    }
+    value.and_then(|v| text(v, 0)).unwrap_or_default().trim().to_string()
+}
+
+fn parse_marketing_plans(body: &Value) -> Result<Vec<ClaimPlan>, String> {
+    if body.get("code").and_then(Value::as_i64) != Some(0) {
+        return Err(format!("Marketing campaign discovery failed: {}",
+            failure_message(body.get("code").and_then(Value::as_i64).unwrap_or(-1), body)));
+    }
+    let deliveries = body.pointer("/data/deliveries").and_then(Value::as_array)
+        .ok_or_else(|| "Marketing campaign discovery: expected data.deliveries array".to_string())?;
+    let mut plans = Vec::new();
+    for delivery in deliveries {
+        let position = match delivery.get("resource_position").and_then(Value::as_str) {
+            Some("popup") => "popup",
+            Some("banner") => "banner",
+            _ => continue,
+        };
+        let resource = delivery.get(position).ok_or_else(||
+            format!("Marketing campaign discovery: missing {position} resource"))?;
+        let buttons = resource.get("buttons").and_then(Value::as_array).ok_or_else(||
+            format!("Marketing campaign discovery: expected {position}.buttons array"))?;
+        for button in buttons {
+            let action = &button["action"];
+            if action.get("type").and_then(Value::as_str) != Some("claim_zcode_plan") {
+                continue;
+            }
+            let plan_id = action.pointer("/args/plan_id").and_then(Value::as_str)
+                .map(str::trim).filter(|id| !id.is_empty())
+                .ok_or_else(|| "Marketing campaign discovery: claim_zcode_plan missing plan_id".to_string())?;
+            let name = marketing_text(resource.get("title"));
+            if let Some(plan) = resource.pointer("/background/args/zcode_plan")
+                .and_then(parse_plan).filter(|plan| plan.plan_id == plan_id) {
+                plans.push(plan);
+                continue;
+            }
+            plans.push(ClaimPlan {
+                plan_id: plan_id.to_string(),
+                name: if name.is_empty() { plan_id.to_string() } else { name },
+                description: marketing_text(resource.get("description")),
+                priority: 0,
+                grants: Vec::new(),
+                grant_items: Vec::new(),
+            });
+        }
+    }
+    Ok(merge_plans(Vec::new(), plans))
 }
 
 fn http_err(prefix: &str, e: ureq::Error) -> String {
@@ -313,7 +402,9 @@ pub fn submit_claim(
 }
 
 pub fn fetch_captcha_config() -> Result<CaptchaConfig, String> {
-    let mut req = agent().get(CLIENT_CONFIGS_URL);
+    let url = format!("{CLIENT_CONFIGS_URL}?app_version={}&platform={}",
+        quota::zcode_app_version(), quota::client_platform());
+    let mut req = agent().get(&url);
     for (k, v) in quota::zai_billing_headers("") {
         req = req.set(&k, &v);
     }
@@ -438,5 +529,86 @@ pub fn failure_message(code: i64, body: &Value) -> String {
         base
     } else {
         crate::i18n::trf("claim.fail.with_server", &[("base", &base), ("server_msg", &server_msg)])
+    }
+}
+
+#[cfg(test)]
+mod marketing_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn extracts_only_claim_actions_and_structured_copy() {
+        let body = json!({"code": 0, "data": {"deliveries": [
+            {"campaign_id": "c1", "resource_position": "popup", "popup": {
+                "title": {"text": {"value": " Activity "}},
+                "description": {"content": " Details "},
+                "buttons": [
+                    {"action": {"type": "open_url", "args": {"plan_id": "unsafe"}}},
+                    {"action": {"type": "unknown", "args": {"plan_id": "unknown"}}},
+                    {"action": {"type": "claim_zcode_plan", "args": {"plan_id": " p1 "}}}
+                ]}},
+            {"resource_position": "banner", "banner": {"title": "Duplicate", "buttons": [
+                {"action": {"type": "claim_zcode_plan", "args": {"plan_id": "p1"}}}
+            ]}}
+        ]}});
+        let plans = parse_marketing_plans(&body).unwrap();
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0].plan_id, "p1");
+        assert_eq!(plans[0].name, "Activity");
+        assert_eq!(plans[0].description, "Details");
+    }
+
+    #[test]
+    fn preview_metadata_wins_and_result_is_sorted() {
+        let preview = parse_plan(&json!({"plan_id": "p1", "name": "Billing", "priority": 5,
+            "entitlements": [{"meter": "model_usage", "unit_type": "token",
+                "show_name": "Tokens", "grant_units": 100}]})).unwrap();
+        let mut marketing = preview.clone();
+        marketing.name = "Campaign".to_string();
+        marketing.grant_items.clear();
+        let mut other = marketing.clone();
+        other.plan_id = "p2".to_string();
+        other.priority = 0;
+        let plans = merge_plans(vec![preview.clone()], vec![other, marketing]);
+        assert_eq!(plans.len(), 2);
+        assert_eq!(plans[0], preview);
+    }
+
+    #[test]
+    fn schema_failures_are_not_treated_as_no_campaigns() {
+        for body in [
+            json!({"code": 0, "data": {}}),
+            json!({"code": 0, "data": {"deliveries": {}}}),
+            json!({"code": 0, "data": {"deliveries": [{"resource_position": "popup"}]}}),
+            json!({"code": 0, "data": {"deliveries": [{"resource_position": "banner",
+                "banner": {"buttons": [{"action": {"type": "claim_zcode_plan", "args": {}}}]}}]}}),
+        ] {
+            assert!(parse_marketing_plans(&body).is_err());
+        }
+        assert!(parse_marketing_plans(&json!({"code": 0, "data": {"deliveries": []}})).unwrap().is_empty());
+    }
+
+    #[test]
+    fn banner_plan_metadata_must_match_claim_action() {
+        let mut body = json!({"code": 0, "data": {"deliveries": [{
+            "resource_position": "banner", "banner": {
+                "title": "Fallback",
+                "background": {"args": {"zcode_plan": {"plan_id": "p1", "name": "Actual plan",
+                    "entitlements": [{"meter": "model_usage", "unit_type": "token",
+                        "show_name": "Tokens", "grant_units": 500}]}}},
+                "buttons": [{"action": {"type": "claim_zcode_plan", "args": {"plan_id": "p1"}}}],
+                "success_popup": {"buttons": [{"action": {"type": "claim_zcode_plan", "args": {"plan_id": "success-only"}}}]}
+            }
+        }]}});
+        let plans = parse_marketing_plans(&body).unwrap();
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0].name, "Actual plan");
+        assert_eq!(plans[0].grant_items[0].units, 500.0);
+        body["data"]["deliveries"][0]["banner"]["background"]["args"]["zcode_plan"]["plan_id"] = json!("other");
+        let plans = parse_marketing_plans(&body).unwrap();
+        assert_eq!(plans[0].plan_id, "p1");
+        assert_eq!(plans[0].name, "Fallback");
+        assert!(plans[0].grant_items.is_empty());
     }
 }

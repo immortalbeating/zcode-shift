@@ -39,7 +39,13 @@ zcode-switch.exe --cli export-all --out <all.zsb>
 zcode-switch.exe --cli import --file <file.zsb>
 zcode-switch.exe --cli rename|delete|update|behavior|setpath|launch
 zcode-switch.exe --cli --lang en state              # 英文输出（--lang 空格传值、可置于任意位置；默认跟 GUI 语言/系统语言）
+zcode-switch.exe --background                      # 托盘后台启动，不显示主窗口或请求焦点
+zcode-switch.exe --claim-once --id <账号id> --plan-id <套餐id>
 ```
+
+`--claim-once` 会实际领取指定账号当前可领的指定套餐，使用独立 WebView2 配置与隐藏、不可聚焦的验证码窗口，输出 JSON 后退出。只运行官方无感验证；需要交互验证时返回 `code: "interactive"`，不操作桌面输入。它不会开启全账号自动领取开关。可先用 `--cli claim-preview --id <账号id>` 核对套餐。
+
+活动发现同时读取官方套餐预览与营销弹窗/横幅，合并其中明确的 `claim_zcode_plan` 动作；不按活动日期、名称或额度写白名单，不自动执行购买、跳转或分享按钮。自动领取启动后约 1 秒首次检测，此后每 10 分钟检测；同账号的不同活动分别冷却。
 
 CLI 密码（export / import）：优先环境变量 `ZSW_PASSWORD`（不出现在进程列表和命令历史），也可 `--password <密码>`。
 

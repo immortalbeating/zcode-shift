@@ -208,7 +208,7 @@ fn bigmodel_headers(token: &str) -> Vec<(String, String)> {
     ]
 }
 
-#[derive(Debug, Clone, serde::Serialize, Default)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, Default)]
 pub struct QuotaItem {
     pub name: String,
     pub total: Option<f64>,
@@ -229,9 +229,9 @@ pub struct QuotaItem {
     pub reset: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, Default)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, Default)]
 pub struct PlanSlot {
-    #[serde(skip_serializing)]
+    #[serde(rename = "plan_id", skip_serializing_if = "String::is_empty")]
     pub pid: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tier: Option<String>,
@@ -660,12 +660,15 @@ fn merge_parts(parts: Vec<QuotaOverview>) -> QuotaOverview {
         }
         refreshed = refreshed.max(p.refreshed_at);
         for s in &p.plans {
-            let dup = slot_src.iter().enumerate().any(|(i, src)| {
-                src != &p.source
-                    && slots[i].tier == s.tier
-                    && slots[i].name == s.name
-                    && !slots[i].items.is_empty()
-                    && !s.items.is_empty()
+            // 同源重复（同账号多 token 查同一接口）→ 整槽完全一致才去重；
+            // 跨源重复（bigmodel 监控 + zai 计费）→ 维持 tier+name 宽松去重
+            let dup = slots.iter().enumerate().any(|(i, existing)| {
+                existing == s
+                    || (slot_src[i] != p.source
+                        && existing.tier == s.tier
+                        && existing.name == s.name
+                        && !existing.items.is_empty()
+                        && !s.items.is_empty())
             });
             if !dup {
                 slots.push(s.clone());

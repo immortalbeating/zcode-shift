@@ -37,6 +37,21 @@ fn ensure_cli_console() {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--claim-once") {
+        #[cfg(windows)]
+        ensure_cli_console();
+        let value = |flag: &str| args.windows(2).find(|w| w[0] == flag).map(|w| w[1].clone());
+        match (value("--id"), value("--plan-id")) {
+            (Some(id), Some(plan)) if !id.trim().is_empty() && !plan.trim().is_empty() => {
+                zcode_switch_lib::run_claim_once(id, plan);
+            }
+            _ => {
+                println!("{{\"ok\":false,\"error\":\"--claim-once requires --id and --plan-id\"}}");
+                std::process::exit(2);
+            }
+        }
+        return;
+    }
     if let Some(pos) = args.iter().position(|a| a == "--cli") {
         let cli_args: Vec<String> = args.iter().skip(pos + 1).cloned().collect();
         #[cfg(windows)]

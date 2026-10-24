@@ -13,7 +13,7 @@ use std::sync::Mutex;
 use store::*;
 use tauri::menu::{MenuBuilder, MenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Listener, Manager};
 use tauri_plugin_autostart::AutoLaunchManager;
 use tauri_plugin_dialog::DialogExt;
 
@@ -32,6 +32,14 @@ struct PendingClaim {
 }
 
 static PENDING_CLAIM: Mutex<Option<PendingClaim>> = Mutex::new(None);
+static CLAIM_SUBMITTING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+struct ClaimSubmission;
+impl Drop for ClaimSubmission {
+    fn drop(&mut self) {
+        CLAIM_SUBMITTING.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
 
 fn pending_guard() -> std::sync::MutexGuard<'static, Option<PendingClaim>> {
     match PENDING_CLAIM.lock() {
@@ -113,7 +121,9 @@ fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.unminimize();
+        let _ = w.set_always_on_top(true);
         let _ = w.set_focus();
+        let _ = w.set_always_on_top(false);
     }
 }
 
@@ -252,6 +262,9 @@ async fn claim_start(
     plan_id: String,
     auto: Option<bool>,
 ) -> Result<serde_json::Value, String> {
+    if CLAIM_SUBMITTING.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err("A claim is still being submitted; wait for its result".into());
+    }
     let paths = Paths::detect();
     let mid = store::ensure_virtual_device_mid(&paths, &id)?;
     let acc = load_account(&paths, &id)?;
@@ -262,7 +275,11 @@ async fn claim_start(
         .ok_or_else(|| i18n::tr("err.claim.gone"))?;
     let display = if plan.name.is_empty() { plan.plan_id.clone() } else { plan.name.clone() };
 
-    *pending_guard() = Some(PendingClaim {
+    let mut guard = pending_guard();
+    if guard.is_some() || CLAIM_SUBMITTING.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err("A claim is already in progress".into());
+    }
+    *guard = Some(PendingClaim {
         account_id: acc.id.clone(),
         account_name: acc.name.clone(),
         plan_id: plan.plan_id.clone(),
@@ -271,7 +288,11 @@ async fn claim_start(
         config: acc.config,
         device_mid: mid,
     });
-    open_captcha_window(&app, auto.unwrap_or(false))?;
+    drop(guard);
+    if let Err(error) = open_captcha_window(&app, auto.unwrap_or(false)) {
+        *pending_guard() = None;
+        return Err(error);
+    }
     Ok(json!({ "account": acc.name, "plan": display }))
 }
 
@@ -286,7 +307,13 @@ async fn claim_captcha_submit(
     param: String,
     region: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let pending = pending_guard().take().ok_or_else(|| i18n::tr("err.claim.none_pending"))?;
+    let mut guard = pending_guard();
+    if CLAIM_SUBMITTING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return Err("A claim is still being submitted".into());
+    }
+    let _submission = ClaimSubmission;
+    let pending = guard.take().ok_or_else(|| i18n::tr("err.claim.none_pending"))?;
+    drop(guard);
     let paths = Paths::detect();
     let res = claim::submit_claim(
         &paths.home,
@@ -312,12 +339,14 @@ async fn claim_captcha_submit(
             let outcome = claim::ClaimOutcome {
                 account_id: pending.account_id.clone(),
                 account_name: pending.account_name.clone(),
+                plan_id: pending.plan_id.clone(),
                 plan_name: pending.plan_name.clone(),
                 starts_at: ms("starts_at"),
                 ends_at: ms("ends_at"),
                 server_time,
             };
-            let p = serde_json::to_value(&outcome).unwrap_or(Value::Null);
+            let mut p = serde_json::to_value(&outcome).unwrap_or(Value::Null);
+            p["ok"] = json!(true);
             let _ = app.emit("claim://result", &p);
             p
         }
@@ -325,6 +354,7 @@ async fn claim_captcha_submit(
             let p = claim::failure_payload(
                 &pending.account_id,
                 &pending.account_name,
+                &pending.plan_id,
                 &pending.plan_name,
                 &e,
             );
@@ -337,7 +367,12 @@ async fn claim_captcha_submit(
 
 #[tauri::command]
 async fn claim_cancel(app: AppHandle) -> Result<(), String> {
-    *pending_guard() = None;
+    let mut guard = pending_guard();
+    if CLAIM_SUBMITTING.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err("A claim is still being submitted; cancellation cannot undo it".into());
+    }
+    *guard = None;
+    drop(guard);
     close_captcha_window(&app);
     Ok(())
 }
@@ -818,6 +853,9 @@ fn open_captcha_window(app: &AppHandle, auto: bool) -> Result<(), String> {
     .maximizable(false)
     .resizable(false)
     .additional_browser_args("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --no-proxy-server")
+    .focused(false)
+    .focusable(!auto)
+    .skip_taskbar(auto)
     .visible(false)
     .build()
     .map_err(|e| e.to_string())?;
@@ -890,9 +928,15 @@ async fn set_language(app: AppHandle, lang: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn reveal_main(app: AppHandle) -> Result<(), String> {
+    if std::env::args().any(|arg| arg == "--background") {
+        return Ok(());
+    }
     let win = app.get_webview_window("main").ok_or_else(|| i18n::tr("err.main.missing"))?;
     win.show().map_err(|e| e.to_string())?;
+    let _ = win.unminimize();
+    let _ = win.set_always_on_top(true);
     let _ = win.set_focus();
+    let _ = win.set_always_on_top(false);
     Ok(())
 }
 
@@ -903,7 +947,9 @@ async fn open_settings(app: AppHandle) -> Result<(), String> {
         center_over_main(&app, &win, w, h);
         let _ = win.show();
         let _ = win.unminimize();
+        let _ = win.set_always_on_top(true);
         let _ = win.set_focus();
+        let _ = win.set_always_on_top(false);
         return Ok(());
     }
     let win = tauri::WebviewWindowBuilder::new(
@@ -1124,9 +1170,18 @@ async fn open_external(url: String) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let mut context = tauri::generate_context!();
+    if std::env::args().any(|arg| arg == "--background") {
+        for window in &mut context.config_mut().app.windows {
+            window.visible = false;
+            window.focus = false;
+        }
+    }
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            show_main(app);
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if !args.iter().any(|arg| arg == "--background") {
+                show_main(app);
+            }
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
@@ -1211,6 +1266,67 @@ pub fn run() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running tauri application");
+}
+
+// Explicit, single-account automation. Only the official passive captcha runs;
+// an interactive challenge ends the operation without showing or focusing UI.
+struct ClaimOnceFinished(std::sync::atomic::AtomicBool);
+
+fn finish_claim_once(app: &AppHandle, payload: Value) {
+    use std::sync::atomic::Ordering;
+    if app.state::<ClaimOnceFinished>().0.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    use std::io::Write;
+    let success = payload.get("ok").and_then(Value::as_bool) == Some(true);
+    let mut stdout = std::io::stdout();
+    let _ = writeln!(stdout, "{}", payload);
+    let _ = stdout.flush();
+    app.exit(if success { 0 } else { 1 });
+}
+
+pub fn run_claim_once(id: String, plan_id: String) {
+    let mut context = tauri::generate_context!();
+    // Clear configured windows BEFORE startup: no main window, tray, focus or
+    // single-instance forwarding to a user's existing desktop window.
+    context.config_mut().app.windows.clear();
+    context.config_mut().identifier = "com.zswitch.claim-once".into();
+    tauri::Builder::default()
+        .manage(ClaimOnceFinished(std::sync::atomic::AtomicBool::new(false)))
+        .invoke_handler(tauri::generate_handler![
+            get_state, claim_captcha_config, claim_captcha_submit,
+        ])
+        .setup(move |app| {
+            i18n::init_from_settings(&store::load_settings(&Paths::detect()));
+            let handle = app.handle().clone();
+            let result_app = handle.clone();
+            app.listen("claim://result", move |event| {
+                let result = serde_json::from_str(event.payload()).unwrap_or_else(|_| {
+                    json!({"ok": false, "code": "invalid_result"})
+                });
+                finish_claim_once(&result_app, result);
+            });
+            let interactive_app = handle.clone();
+            app.listen("captcha://interactive", move |_| {
+                finish_claim_once(&interactive_app, json!({
+                    "ok": false, "code": "interactive",
+                    "message": "Official verification needs user interaction; no claim was submitted",
+                }));
+            });
+            let timeout_app = handle.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(45));
+                finish_claim_once(&timeout_app, json!({"ok": false, "code": "timeout"}));
+            });
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = claim_start(handle.clone(), id, plan_id, Some(true)).await {
+                    finish_claim_once(&handle, json!({"ok": false, "code": "start_failed", "message": error}));
+                }
+            });
+            Ok(())
+        })
+        .run(context)
+        .expect("error while running isolated claim");
 }

@@ -29,7 +29,7 @@
   "description": "ZCode account switching and quota companion, independently maintained from zcode-switch",
   "repository": {
     "type": "git",
-    "url": "https://github.com/superidiot1201/zcode-shift.git"
+    "url": "https://github.com/immortalbeating/zcode-shift.git"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"

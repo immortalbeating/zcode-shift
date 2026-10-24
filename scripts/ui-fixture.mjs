@@ -7,11 +7,11 @@ export function installFixture({ language = 'zh', scenario = 'accounts' } = {}) 
   ].map(([id, name, email], index) => ({ id, name, created_at: '2026-10-25 09:30',
     updated_at: '2026-10-25 09:30', is_active: index === 0, has_config: true,
     has_user_info: true, identity: { provider: 'zai', email } }));
-  const state = { zcode_running: false, live_exists: true, live_logged_in: true,
+  const state = { zcode_running: scenario === 'running', live_exists: true, live_logged_in: true,
     active_account_id: 'demo-primary', accounts: scenario === 'empty' ? [] : accounts,
     zcode_path: 'C:\\Apps\\ZCode\\ZCode.exe', zcode_path_ok: true,
     store_dir: '<synthetic fixture>', launch_after_switch: true, close_to_tray: true,
-    hot_switch: true, auto_claim: false, auth_proxy_on: false, auth_proxy_url: '', language };
+    hot_switch: true, auto_claim: scenario === 'running', auth_proxy_on: false, auth_proxy_url: '', language };
   const callbacks = new Map(), listeners = new Map();
   let callbackId = 0;
   const quota = id => ({ is_empty: false, source: 'synthetic-fixture',
@@ -43,7 +43,7 @@ export function installFixture({ language = 'zh', scenario = 'accounts' } = {}) 
       window.__fixtureCalls.push({ command, args });
       if (command === 'plugin:event|listen') { listeners.set(args.event, args.handler); return args.handler; }
       if (command === 'plugin:event|unlisten') return;
-      if (command === 'app_version') return '1.0.0';
+      if (command === 'app_version') return '1.0.1';
       if (command === 'get_state') return structuredClone(state);
       if (command === 'get_account_quota') {
         if (scenario === 'loading') return new Promise(() => {});
@@ -51,7 +51,7 @@ export function installFixture({ language = 'zh', scenario = 'accounts' } = {}) 
         return quota(args.id);
       }
       if (command === 'claim_preview') return args.id === 'demo-secondary' && scenario === 'accounts' ? [plan] : [];
-      if (command === 'claim_refresh') return { plans: args.id === 'demo-secondary' ? [plan] : [] };
+      if (command === 'claim_refresh') return { plans: scenario !== 'running' && args.id === 'demo-secondary' ? [plan] : [] };
       if (command === 'set_language') { state.language = args.lang; return; }
       if (command === 'set_behavior') { if ('autoClaim' in args) state.auto_claim = args.autoClaim; return; }
       if (command === 'rename_account') {

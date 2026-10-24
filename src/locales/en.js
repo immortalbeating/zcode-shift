@@ -104,6 +104,8 @@ export const en = {
   "btn.claimAll": "Claim all",
   "btn.claimAllTitle": "Complete verification and claim for each account (one claim per account)",
   "btn.autoClaim": "Auto claim",
+  "btn.autoClaimShort": "Auto",
+  "common.actions": "Quick actions",
   "btn.autoClaimTitle": "When on, checks claimable plans every 10 min and claims automatically (activates eligibility once per account first; captcha solved silently, alerts if manual verification needed)",
   "btn.claim": "Claim",
   "btn.refreshClaim": "Refresh",
@@ -148,7 +150,7 @@ export const en = {
 
   "s.title": "Settings",
   "s.behaviorLabel": "Behavior",
-  "s.langLabel": "LANGUAGE · Language",
+  "s.langLabel": "Language",
   "s.langZh": "中文",
   "s.langEn": "English",
   "s.autostart": "Launch at Windows startup",

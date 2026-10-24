@@ -942,7 +942,7 @@ async fn reveal_main(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 async fn open_settings(app: AppHandle) -> Result<(), String> {
-    let (w, h) = (520.0, 700.0);
+    let (w, h) = (360.0, 720.0);
     if let Some(win) = app.get_webview_window("settings") {
         center_over_main(&app, &win, w, h);
         let _ = win.show();
@@ -961,7 +961,7 @@ async fn open_settings(app: AppHandle) -> Result<(), String> {
     .theme(Some(tauri::Theme::Dark))
     .background_color(tauri::window::Color(10, 10, 12, 255))
     .inner_size(w, h)
-    .min_inner_size(440.0, 540.0)
+    .min_inner_size(360.0, 540.0)
     .resizable(true)
     .additional_browser_args("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --no-proxy-server")
     .visible(false)

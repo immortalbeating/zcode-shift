@@ -1,19 +1,20 @@
 
 :root {
-  --bg: #101319;
-  --bg-2: #151a23;
-  --panel: #1b212c;
-  --panel-2: #242d3a;
-  --hairline: #3c495b;
-  --hairline-soft: #2d3745;
-  --ink: #edf3f5;
-  --ink-dim: #bccbd3;
-  --ink-mute: #a2b3bf;
-  --brand: #2563eb;
-  --brand-hover: #1d4ed8;
-  --brand-text: #91baff;
-  --brand-soft: #1c2c49;
-  --brand-border: #41689f;
+  --bg: #17181c;
+  --bg-2: #1c1d22;
+  --panel: #222329;
+  --panel-2: #292a30;
+  --hairline: #44454d;
+  --hairline-soft: #34353c;
+  --ink: #ebe8e0;
+  --ink-dim: #c3c0b8;
+  --ink-mute: #aaa9ad;
+  --brand: #d3a669;
+  --brand-hover: #e2b87c;
+  --brand-text: #e7bb7d;
+  --brand-soft: #352e24;
+  --brand-border: #92744e;
+  --brand-on: #241c10;
   --amber: #f2bd69;
   --amber-deep: #9b743c;
   --amber-ink: #291d0d;
@@ -451,29 +452,56 @@ input:focus-visible,
   margin: 8px 14px 0;
   padding: 0;
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  flex: none;
   gap: 6px;
 }
-.tb-row {
-  display: flex;
-  gap: 6px;
-  width: 100%;
-}
-.tb-row > button {
-  flex: 1;
-  min-width: 0;
+.toolbar-icon {
+  flex: 0 0 31px;
+  width: 31px;
   height: 31px;
-  font-size: 12.5px;
-  padding: 0 8px;
+  padding: 0;
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  white-space: nowrap;
 }
-.tb-row > button span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.toolbar-count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--brand);
+  color: var(--brand-on);
+  font: 600 9px/14px var(--body);
+}
+.toolbar-separator {
+  width: 1px;
+  height: 19px;
+  background: var(--hairline);
+  margin-left: auto;
+}
+.compact-toolbar .tog-inline {
+  flex: 0 0 auto;
+  gap: 5px;
+  padding: 0 7px;
+}
+.action-tooltip {
+  position: fixed;
+  z-index: 2000;
+  max-width: min(270px, calc(100vw - 16px));
+  padding: 7px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--hairline);
+  background: var(--panel-2);
+  color: var(--ink);
+  font: 12px/1.5 var(--body);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  pointer-events: none;
 }
 
 .btn-primary {
@@ -544,7 +572,7 @@ input:focus-visible,
   border-color: var(--amber-deep);
   box-shadow: 0 0 10px rgba(102, 213, 195, .30);
 }
-.tog-inline.on .toggle { background: rgba(102, 213, 195, .25); }
+.tog-inline.on .toggle { background: var(--brand-soft); }
 .tog-inline.on .toggle .knob { transform: translateX(12px); background: var(--amber); }
 .tog-inline.running { animation: tog-pulse 1.6s ease-in-out infinite; }
 @keyframes tog-pulse {
@@ -840,7 +868,7 @@ input:focus-visible,
   padding: 2px;
   border: 1px solid var(--hairline);
   border-radius: 11px;
-  background: #2b2e36;
+  background: var(--panel);
   flex: none;
 }
 .lang-opt {
@@ -856,8 +884,8 @@ input:focus-visible,
 }
 .lang-opt:hover { color: var(--ink); }
 .lang-opt.on {
-  background: rgba(102, 213, 195, .25);
-  color: var(--amber);
+  background: var(--brand-soft);
+  color: var(--brand-text);
 }
 
 .tier-b {
@@ -1163,7 +1191,7 @@ input:focus-visible,
 .pv-item .pv-arrow { color: var(--ink-mute); font-family: var(--mono); }
 .pv-actions { display: flex; justify-content: flex-end; margin-top: 14px; }
 
-/* Z·SHIFT: compact slate surfaces, blue actions and semantic quota colors. */
+/* Z·SHIFT: neutral graphite surfaces and warm-gold actions. */
 .brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .brand-mark { color: var(--brand-text); flex: none; }
 .brand-copy { min-width: 0; }
@@ -1200,7 +1228,7 @@ input:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
   .top-right { gap: 6px; }
   .toolbar { margin-inline: 12px; }
   .list { padding-inline: 12px; }
-  .tb-row > button, .tog-inline { font-size: 12px; padding-inline: 5px; gap: 4px; }
+  .tog-inline { font-size: 12px; padding-inline: 5px; gap: 4px; }
   .row-title-wrap { gap: 5px; }
   .row-title-wrap .tier { padding-inline: 4px; font-size: 11px; }
   .tag-relogin { font-size: 10px; }
@@ -1228,7 +1256,7 @@ input:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
   border-radius: 4px; color: var(--ink-dim); font-weight: 500;
 }
 .btn-primary, .btn-claim, #cap-btn, .cm-yes.plain {
-  background: var(--brand); border-color: var(--brand); color: #fff;
+  background: var(--brand); border-color: var(--brand); color: var(--brand-on);
 }
 .btn-primary:hover:not(:disabled), .btn-claim:hover:not(:disabled), #cap-btn:hover,
 .cm-yes.plain:hover:not(:disabled) {
@@ -1238,17 +1266,17 @@ input:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
   color: var(--brand-text); border-color: var(--brand-border);
   background: var(--brand-soft); height: 27px; border-radius: 7px;
 }
-.btn-switch:hover:not(:disabled) { border-color: var(--brand-text); background: #243c61; }
-.row.active { border-color: #407e6a; background: #1a2b29; }
+.btn-switch:hover:not(:disabled) { border-color: var(--brand-text); background: var(--brand-soft); }
+.row.active { border-color: var(--brand-border); background: #29261f; }
 .row-actions { gap: 5px; }
 .icon-btn-ghost { width: 26px; height: 26px; border-radius: 6px; color: var(--ink-mute); }
 .icon-btn-ghost:hover { background: var(--bg-2); color: var(--ink); }
 .tog-inline.on { color: var(--brand-text); border-color: var(--brand-border); background: var(--brand-soft); }
-.tog-inline.on .toggle { border-color: var(--brand-border); background: #233e64; }
+.tog-inline.on .toggle { border-color: var(--brand-border); background: var(--brand-soft); }
 .tog-inline.on .toggle .knob { background: var(--brand-text); }
 .toggle.on { border-color: var(--brand-border); background: var(--brand-soft); }
 .toggle.on .knob { background: var(--brand-text); }
-.qbar { background: #303b4b; }
+.qbar { background: #36373e; }
 .qbar-fill { background: var(--mint); }
 .qbar.warn .qbar-fill { background: var(--amber); }
 .gh-link { color: var(--brand-text); }
@@ -1265,3 +1293,20 @@ button:focus-visible, a:focus-visible, input:focus-visible,
 .toolbar .claim-all:hover:not(:disabled) { border-color: var(--brand-text); background: var(--brand-soft); }
 .cm-yes.warn:hover:not(:disabled) { background: #ffd18b; }
 .pv-item:hover { border-color: var(--brand-border); background: var(--brand-soft); }
+
+/* Settings share the main window's 360px minimum width and control density. */
+.settings-win .topbar { min-height: 56px; padding-block: 9px; }
+.settings { padding: 8px 14px 18px; }
+.settings .tog-row { gap: 10px; padding: 8px 0; }
+.settings .tog-info { min-width: 0; flex: 1; }
+.settings .tog-label { font-size: 13px; line-height: 1.5; }
+.settings .tog-desc { font-size: 11.5px; line-height: 1.5; margin-top: 3px; overflow-wrap: anywhere; }
+.settings label { font-size: 11.5px; }
+.settings input { font-size: 12px; padding: 7px 8px; }
+.settings button:not(.toggle):not(.lang-opt) { font-size: 12px; }
+.settings .lang-opt { font-size: 12px; padding: 3px 9px; }
+.settings .hint, .settings .upstream-note { font-size: 11.5px; line-height: 1.5; }
+.settings .lib-row { display: flex; flex-wrap: wrap; gap: 7px; }
+.settings .toggle { width: 36px; height: 20px; }
+.settings .toggle .knob { width: 14px; height: 14px; }
+.settings .toggle.on .knob { transform: translateX(16px); }

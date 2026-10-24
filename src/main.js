@@ -827,10 +827,10 @@ function render() {
       <div class="row-subline">
         <div class="row-meta" title="${esc(meta.replace(/<[^>]+>/g, ""))}">${meta}</div>
         <div class="row-actions">
-          <button class="icon-btn-ghost" title="${t("btn.quota")}" aria-label="${t("btn.quota")}" click="actions.acctQuota('${a.id}')">${ic("gauge", 13)}</button>
-          <button class="icon-btn-ghost" title="${t("btn.rename")}" aria-label="${t("btn.rename")}" click="actions.rename('${a.id}')">${ic("pen", 13)}</button>
-          <button class="icon-btn-ghost" title="${t("btn.export")}" aria-label="${t("btn.export")}" click="actions.exportOne('${a.id}')">${ic("export", 13)}</button>
-          <button class="icon-btn-ghost danger" title="${t("btn.delete")}" aria-label="${t("btn.delete")}" click="actions.delete('${a.id}')">${ic("x", 13)}</button>
+          <button class="icon-btn-ghost" data-tip="${t("btn.quota")}" aria-label="${t("btn.quota")}" click="actions.acctQuota('${a.id}')">${ic("accountRefresh", 14)}</button>
+          <button class="icon-btn-ghost" data-tip="${t("btn.rename")}" aria-label="${t("btn.rename")}" click="actions.rename('${a.id}')">${ic("accountEdit", 14)}</button>
+          <button class="icon-btn-ghost" data-tip="${t("btn.export")}" aria-label="${t("btn.export")}" click="actions.exportOne('${a.id}')">${ic("accountExport", 14)}</button>
+          <button class="icon-btn-ghost danger" data-tip="${t("btn.delete")}" aria-label="${t("btn.delete")}" click="actions.delete('${a.id}')">${ic("accountDelete", 14)}</button>
         </div>
       </div>
       ${acctQuotaSlot(a.id)}
@@ -861,43 +861,38 @@ function render() {
       </div>
     </header>
 
-    <section class="toolbar">
-      <div class="tb-row">
-        <button class="btn-primary has-ic${unsaved ? " attention" : ""}" click="actions.capture()" ${!s.live_logged_in || active ? "disabled" : ""}
-          title="${active ? esc(t("m.saveLoginDisabledTitle", { name: active.name })) : ""}">
-          ${ic("capture", 14)} <span>${t("btn.saveLogin")}</span>
+    <section class="toolbar compact-toolbar" aria-label="${t("common.actions")}">
+        <button class="btn-primary toolbar-icon${unsaved ? " attention" : ""}" click="actions.capture()" ${!s.live_logged_in || active ? "disabled" : ""}
+          aria-label="${t("btn.saveLogin")}" data-tip="${active ? esc(t("m.saveLoginDisabledTitle", { name: active.name })) : t("btn.saveLogin")}">
+          ${ic("capture", 15)}
         </button>
-        <button class="btn-ghost has-ic" click="actions.addAccount()" title="${t("btn.addAccountTitle")}">
-          ${ic("userPlus", 14)} <span>${t("btn.addAccount")}</span>
+        <button class="btn-ghost toolbar-icon" click="actions.addAccount()" aria-label="${t("btn.addAccount")}" data-tip="${t("btn.addAccountTitle")}">
+          ${ic("userPlus", 15)}
         </button>
         ${claimableCount > 0
-          ? `<button class="btn-ghost has-ic claim-all" click="actions.claimAll()" ${claimAllRunning || refreshClaim.running || autoClaimRunning ? "disabled" : ""}
-              title="${t("btn.claimAllTitle")}">${ic("gift", 14)} <span>${t("btn.claimAll")}${claimableCount > 1 ? ` (${claimableCount})` : ""}</span></button>`
+          ? `<button class="btn-ghost toolbar-icon claim-all" click="actions.claimAll()" ${claimAllRunning || refreshClaim.running || autoClaimRunning ? "disabled" : ""}
+              aria-label="${t("btn.claimAll")}" data-tip="${t("btn.claimAllTitle")}">${ic("gift", 15)}<span class="toolbar-count" aria-hidden="true">${claimableCount}</span></button>`
           : ""}
-      </div>
-      <div class="tb-row">
-        <button class="tog-inline${s.auto_claim ? " on" : ""}${autoClaimRunning ? " running" : ""}"
-          role="switch" aria-checked="${s.auto_claim}" aria-label="${t("btn.autoClaim")}"
-          title="${autoPillTitle(s)}"
-          click="actions.toggleAutoClaim()">
-          <span class="toggle${s.auto_claim ? " on" : ""}" aria-hidden="true"><span class="knob"></span></span>
-          <span>${t("btn.autoClaim")}</span>
-        </button>
-        ${s.zcode_running
-          ? `<button class="btn-ghost has-ic tb-kill" click="actions.askKill()" title="${t("btn.killZcode")}">${ic("power", 14)} <span>${t("btn.killZcode")}</span></button>`
-          : `<button class="btn-ghost has-ic tb-launch" click="actions.launch()" ${s.zcode_path_ok ? "" : "disabled"}>${ic("play", 13)} <span>${t("btn.launchZcode")}</span></button>`}
         ${(s.accounts.length > 0)
-          ? `<button class="btn-ghost has-ic tb-refresh" click="actions.refreshClaim()"
+          ? `<button class="btn-ghost toolbar-icon tb-refresh" click="actions.refreshClaim()"
               ${refreshClaim.running || claimAllRunning || Date.now() < refreshClaim.cooldownUntil ? "disabled" : ""}
-              title="${Date.now() < refreshClaim.cooldownUntil && !refreshClaim.running
+              aria-label="${t("btn.refreshClaim")}" data-tip="${Date.now() < refreshClaim.cooldownUntil && !refreshClaim.running
                 ? esc(t("btn.refreshClaimCooldownTitle", { n: Math.ceil((refreshClaim.cooldownUntil - Date.now()) / 1000) }))
-                : esc(t("btn.refreshClaimTitle"))}">
-              ${ic("refresh", 14)} <span>${refreshClaim.running
-                ? esc(t("btn.refreshClaimRunning", { done: refreshClaim.done, total: refreshClaim.total }))
-                : esc(t("btn.refreshClaim"))}</span>
+                : refreshClaim.running ? esc(t("btn.refreshClaimRunning", { done: refreshClaim.done, total: refreshClaim.total })) : esc(t("btn.refreshClaimTitle"))}">
+              ${ic("accountRefresh", 15)}
             </button>`
           : ""}
-      </div>
+        ${s.zcode_running
+          ? `<button class="btn-ghost toolbar-icon tb-kill" click="actions.askKill()" aria-label="${t("btn.killZcode")}" data-tip="${t("btn.killZcode")}">${ic("power", 15)}</button>`
+          : `<button class="btn-ghost toolbar-icon tb-launch" click="actions.launch()" ${s.zcode_path_ok ? "" : "disabled"} aria-label="${t("btn.launchZcode")}" data-tip="${t("btn.launchZcode")}">${ic("play", 14)}</button>`}
+        <span class="toolbar-separator" aria-hidden="true"></span>
+        <button class="tog-inline${s.auto_claim ? " on" : ""}${autoClaimRunning ? " running" : ""}"
+          role="switch" aria-checked="${s.auto_claim}" aria-label="${t("btn.autoClaim")}"
+          data-tip="${autoPillTitle(s)}"
+          click="actions.toggleAutoClaim()">
+          <span class="toggle${s.auto_claim ? " on" : ""}" aria-hidden="true"><span class="knob"></span></span>
+          <span>${t("btn.autoClaimShort")}</span>
+        </button>
     </section>
 
     <div class="section-head">

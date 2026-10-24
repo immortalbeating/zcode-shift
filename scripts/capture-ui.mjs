@@ -18,9 +18,11 @@ try {
     ['main-360-zh', 360, 820, 'zh', 'accounts', '/'],
     ['main-520-zh', 520, 820, 'zh', 'accounts', '/'],
     ['main-360-en', 360, 820, 'en', 'accounts', '/'],
+    ['running-360-zh', 360, 800, 'zh', 'running', '/'],
     ['empty-360-zh', 360, 640, 'zh', 'empty', '/'],
     ['error-360-zh', 360, 820, 'zh', 'error', '/'],
     ['loading-360-zh', 360, 820, 'zh', 'loading', '/'],
+    ['settings-360-zh', 360, 720, 'zh', 'accounts', '/settings.html'],
     ['settings-520-zh', 520, 760, 'zh', 'accounts', '/settings.html'],
     ['settings-360-en', 360, 820, 'en', 'accounts', '/settings.html'],
   ];
@@ -55,9 +57,32 @@ try {
     assert.ok(inspection.renderer && !/SwiftShader|llvmpipe|software/i.test(inspection.renderer),
       `GPU renderer required, received ${inspection.renderer}`);
     assert.deepEqual(errors, [], name);
+    if (path === '/') {
+      const buttons = await page.locator('.compact-toolbar button').evaluateAll(buttons =>
+        buttons.map(button => ({ top: button.getBoundingClientRect().top,
+          label: button.getAttribute('aria-label'), tip: button.dataset.tip })));
+      assert.ok(buttons.every(button => button.label && button.tip), `${name}: unnamed toolbar action`);
+      assert.ok(Math.max(...buttons.map(button => button.top)) - Math.min(...buttons.map(button => button.top)) <= 1,
+        `${name}: toolbar must stay on one row`);
+    }
     await page.screenshot({ path: resolve(output, `${name}.png`) });
     if (name === 'main-360-zh') {
       const row = page.locator('.row').first();
+      const refresh = row.getByRole('button', { name: '查额度', exact: true });
+      await refresh.hover();
+      await page.getByRole('tooltip').filter({ hasText: '查额度' }).waitFor();
+      await page.screenshot({ path: resolve(output, 'account-actions-hover.png') });
+      await page.keyboard.press('Escape');
+      const topRefresh = page.getByRole('button', { name: '刷新资格', exact: true });
+      await topRefresh.focus();
+      await page.getByRole('tooltip').waitFor();
+      const tipBox = await page.getByRole('tooltip').boundingBox();
+      assert.ok(tipBox.x >= 0 && tipBox.x + tipBox.width <= width, 'tooltip must stay inside narrow viewport');
+      await page.screenshot({ path: resolve(output, 'toolbar-focus-tooltip.png') });
+      await page.keyboard.press('Escape');
+      await page.getByRole('tooltip').waitFor({ state: 'detached' });
+      assert.equal(await row.locator('.row-actions svg[viewBox="0 0 24 24"]').count(), 4,
+        'all account actions use AGY outline icons');
       await row.getByRole('button', { name: '重命名', exact: true }).click();
       await page.locator('.rename-input').fill('合成账号重命名');
       await page.locator('.rename-input').press('Enter');
@@ -65,6 +90,14 @@ try {
       assert.equal(await page.locator('.row').count(), 3);
       await page.keyboard.press('Tab');
       assert.ok(await page.evaluate(() => document.activeElement !== document.body));
+    }
+    if (name === 'settings-360-zh') {
+      await page.getByRole('radio', { name: 'English', exact: true }).click();
+      await page.waitForFunction(() => document.querySelector('.lang-opt[aria-checked="true"]')?.textContent.trim() === 'English');
+      assert.equal(await page.getByRole('radio', { name: 'English', exact: true }).getAttribute('aria-checked'), 'true');
+      const proxy = page.locator('input.auth-proxy');
+      await proxy.scrollIntoViewIfNeeded();
+      assert.ok((await proxy.boundingBox()).width <= width - 24);
     }
     report.captures.push({ name, width, height, language, scenario, ...inspection });
     await context.close();

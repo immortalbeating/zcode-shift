@@ -104,6 +104,8 @@ export const zh = {
   "btn.claimAll": "全部领取",
   "btn.claimAllTitle": "逐账号完成安全验证并领取（每账号限领一次）",
   "btn.autoClaim": "自动领取",
+  "btn.autoClaimShort": "自动",
+  "common.actions": "快捷操作",
   "btn.autoClaimTitle": "开启后每 10 分钟自动检测可领套餐并领取（每号先激活一次活动资格；验证码静默通过，需人工验证时提醒）",
   "btn.claim": "领取",
   "btn.refreshClaim": "刷新资格",
@@ -148,7 +150,7 @@ export const zh = {
 
   "s.title": "设置",
   "s.behaviorLabel": "行为",
-  "s.langLabel": "LANGUAGE · 语言",
+  "s.langLabel": "语言",
   "s.langZh": "中文",
   "s.langEn": "English",
   "s.autostart": "开机自启动",

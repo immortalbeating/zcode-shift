@@ -59,6 +59,7 @@ function runAttr(expr, event) {
 }
 
 export function installDelegation() {
+  installActionTooltips();
   document.addEventListener("click", (e) => {
     const el = e.target.closest("[click]");
     if (!el) return;
@@ -75,6 +76,54 @@ export function installDelegation() {
     if (!el) return;
     runAttr(el.getAttribute("blur") || "", e);
   }, true);
+}
+
+function installActionTooltips() {
+  let target = null, tooltip = null, timer = 0;
+  const hide = () => {
+    clearTimeout(timer);
+    if (target?.getAttribute("aria-describedby") === "action-tooltip") target.removeAttribute("aria-describedby");
+    tooltip?.remove();
+    target = null; tooltip = null;
+  };
+  const show = (button, delay = 160) => {
+    if (!button?.dataset.tip || button === target) return;
+    hide(); target = button;
+    timer = setTimeout(() => {
+      if (!button.isConnected) return hide();
+      tooltip = document.createElement("div");
+      tooltip.id = "action-tooltip";
+      tooltip.className = "action-tooltip";
+      tooltip.setAttribute("role", "tooltip");
+      tooltip.textContent = button.dataset.tip;
+      document.body.appendChild(tooltip);
+      button.setAttribute("aria-describedby", tooltip.id);
+      const rect = button.getBoundingClientRect();
+      const left = Math.max(8, Math.min(rect.left, innerWidth - tooltip.offsetWidth - 8));
+      const top = rect.bottom + tooltip.offsetHeight + 8 < innerHeight
+        ? rect.bottom + 6 : Math.max(8, rect.top - tooltip.offsetHeight - 6);
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${top}px`;
+    }, delay);
+  };
+  document.addEventListener("pointerover", (event) => {
+    const button = event.target.closest("[data-tip]");
+    if (button) show(button);
+  });
+  document.addEventListener("pointerout", (event) => {
+    if (target && !target.contains(event.relatedTarget)) hide();
+  });
+  document.addEventListener("focusin", (event) => {
+    const button = event.target.closest("[data-tip]");
+    if (button) show(button, 0); else hide();
+  });
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape") hide(); });
+  document.addEventListener("click", hide);
+  document.addEventListener("scroll", hide, true);
+  window.addEventListener("resize", hide);
+  const app = document.getElementById("app");
+  if (app) new MutationObserver(() => { if (target && !target.isConnected) hide(); })
+    .observe(app, { childList: true });
 }
 
 export function openConfirmModal(m) {

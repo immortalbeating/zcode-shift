@@ -2,7 +2,7 @@
 
 An independently maintained ZCode account-switching and quota companion, derived from [pjpv/zcode-switch](https://github.com/pjpv/zcode-switch) under the [MIT license](LICENSE).
 
-The compact UI has its own name and vector mark. Account avatars, primary actions, quota colors, and spacing take cues from the maintainer's AGY·SWITCH. Chinese and English are supported. Screenshots use synthetic accounts only.
+The compact UI has its own name and vector mark, a single icon toolbar with hover/focus hints, and a graphite / warm-gold palette. Account avatars, primary actions, quota colors, and spacing take cues from the maintainer's AGY·SWITCH. Chinese and English are supported. Screenshots use synthetic accounts only.
 
 This version also repairs event-claim verification, discovers explicit claim actions in both billing previews and marketing deliveries, and correlates asynchronous results with the requested account and plan.
 

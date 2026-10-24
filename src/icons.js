@@ -1,6 +1,17 @@
 
 const P = (d) => `<path d="${d}"/>`;
 
+// The account actions use the same 24px outline glyphs as AGY·SWITCH.
+const ACCOUNT_ICONS = {
+  accountRefresh: P("M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8") + P("M3 3v5h5")
+    + P("M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16") + P("M16 21h5v-5"),
+  accountEdit: P("M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"),
+  accountExport: P("M15 3h6v6") + P("M10 14 21 3")
+    + P("M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"),
+  accountDelete: P("M3 6h18") + P("M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6")
+    + P("M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"),
+};
+
 const ICONS = {
   gauge: P("M2.5 12.5h11") + P("M3.6 12.5a4.4 4.4 0 0 1 8.8 0") + P("M8 12.5 10.8 8.2"),
 
@@ -41,9 +52,10 @@ const ICONS = {
 };
 
 export function ic(name, size = 16, cls = "") {
-  const body = ICONS[name];
+  const account = ACCOUNT_ICONS[name];
+  const body = account || ICONS[name];
   if (!body) return "";
-  return `<svg class="ic${cls ? " " + cls : ""}" width="${size}" height="${size}" viewBox="0 0 16 16"
-    fill="none" stroke="currentColor" stroke-width="1.5"
-    stroke-linecap="butt" stroke-linejoin="miter" aria-hidden="true">${body}</svg>`;
+  return `<svg class="ic${cls ? " " + cls : ""}" width="${size}" height="${size}" viewBox="0 0 ${account ? 24 : 16} ${account ? 24 : 16}"
+    fill="none" stroke="currentColor" stroke-width="${account ? 2 : 1.5}"
+    stroke-linecap="${account ? "round" : "butt"}" stroke-linejoin="${account ? "round" : "miter"}" aria-hidden="true">${body}</svg>`;
 }

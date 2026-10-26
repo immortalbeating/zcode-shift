@@ -14,7 +14,19 @@ export function installFixture({ language = 'zh', scenario = 'accounts' } = {}) 
     hot_switch: true, auto_claim: scenario === 'running', auth_proxy_on: false, auth_proxy_url: '', language };
   const callbacks = new Map(), listeners = new Map();
   let callbackId = 0;
-  const quota = id => ({ is_empty: false, source: 'synthetic-fixture',
+  const quota = id => {
+    if (id === 'demo-primary' && ['scheduled', 'global-active'].includes(scenario)) {
+      const scheduled = scenario === 'scheduled';
+      const items = scheduled ? [] : [{ name: 'GLM-5.3-Flash', total: 300000000,
+        remaining: 300000000, percent_used: 0 }];
+      return { is_empty: scheduled, source: 'synthetic-fixture', refreshed_at: Date.now(),
+        plan_tier: 'Start Plan', plan_expire: '2026-10-27 09:00', items,
+        plans: [{ name: 'ZCODE GLOBAL BUILD', plan_id: 'demo-global-build', tier: 'Start Plan',
+          tier_code: 'start', expire: '2026-10-27 09:00', items,
+          scheduled_grants: scheduled ? [{ name: 'GLM-5.3-Flash', units: 300000000,
+            unit: 'token', effective_at: 1793026800000 }] : [] }] };
+    }
+    const overview = { is_empty: false, source: 'synthetic-fixture',
     refreshed_at: Date.now(), percent_used: id === 'demo-primary' ? 24 : 6,
     items: [
       { name: 'GLM-5.3', total: 3000000, remaining: 2280000, percent_used: 24 },
@@ -28,7 +40,12 @@ export function installFixture({ language = 'zh', scenario = 'accounts' } = {}) 
       tier: 'Start', tier_code: 'start', expire: '2026-10-26 09:00', items: [
         { name: 'GLM-5.3-Flash', total: 300000000, remaining: 282000000, percent_used: 6 },
         { name: 'GLM-5.3', total: 200000000, remaining: 152000000, percent_used: 24 },
-      ] }] : [])] });
+      ] }] : [])] };
+    if (scenario === 'scheduled' && id === 'demo-secondary') {
+      overview.plans.push(quota('demo-primary').plans[0]);
+    }
+    return overview;
+  };
   const plan = { plan_id: 'demo-campaign', name: '周末体验礼包', description: '仅用于界面验证的合成活动',
     grants: ['GLM-5.3 · 2亿 Token'], grant_items: [{ name: 'GLM-5.3', units: 200000000, period: 'one_time' }] };
   window.__fixtureCalls = [];
@@ -43,7 +60,7 @@ export function installFixture({ language = 'zh', scenario = 'accounts' } = {}) 
       window.__fixtureCalls.push({ command, args });
       if (command === 'plugin:event|listen') { listeners.set(args.event, args.handler); return args.handler; }
       if (command === 'plugin:event|unlisten') return;
-      if (command === 'app_version') return '1.0.1';
+      if (command === 'app_version') return '1.0.2';
       if (command === 'get_state') return structuredClone(state);
       if (command === 'get_account_quota') {
         if (scenario === 'loading') return new Promise(() => {});

@@ -25,10 +25,13 @@ try {
     ['settings-360-zh', 360, 720, 'zh', 'accounts', '/settings.html'],
     ['settings-520-zh', 520, 760, 'zh', 'accounts', '/settings.html'],
     ['settings-360-en', 360, 820, 'en', 'accounts', '/settings.html'],
+    ['scheduled-360-zh', 360, 820, 'zh', 'scheduled', '/'],
+    ['scheduled-360-en', 360, 820, 'en', 'scheduled', '/'],
+    ['global-active-360-zh', 360, 820, 'zh', 'global-active', '/'],
   ];
   for (const [name, width, height, language, scenario, path] of cases) {
     const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1,
-      reducedMotion: 'reduce' });
+      reducedMotion: 'reduce', timezoneId: 'Asia/Shanghai' });
     await context.addInitScript(installFixture, { language, scenario });
     const page = await context.newPage(), errors = [];
     page.on('pageerror', error => errors.push(error.message));
@@ -40,7 +43,7 @@ try {
         for (const id of ['demo-primary', 'demo-secondary', 'demo-long-name']) window.actions.acctQuota(id);
       });
       if (scenario !== 'loading') {
-        await page.locator('.row[data-id="demo-primary"] .q-win').first().waitFor();
+        await page.locator(`.row[data-id="demo-primary"] ${scenario === 'scheduled' ? '.scheduled-grant' : '.q-win'}`).first().waitFor();
         await page.locator('.row[data-id="demo-long-name"] .q-win').first().waitFor();
       }
     }
@@ -57,6 +60,23 @@ try {
     assert.ok(inspection.renderer && !/SwiftShader|llvmpipe|software/i.test(inspection.renderer),
       `GPU renderer required, received ${inspection.renderer}`);
     assert.deepEqual(errors, [], name);
+    if (['scheduled', 'global-active'].includes(scenario)) {
+      const row = page.locator('.row[data-id="demo-primary"]');
+      assert.equal(await row.getByText('ZCODE GLOBAL BUILD', { exact: true }).count(), 1);
+      if (scenario === 'scheduled') {
+        assert.equal(await row.locator('.qbar').count(), 0, 'future grants must not look spendable');
+        assert.match(await row.locator('.sg-amount').innerText(), language === 'zh' ? /3亿/ : /300M/);
+        assert.match(await row.locator('.sg-status').innerText(), /23:00/);
+        assert.match(await row.locator('.row-meta').innerText(), /2026-10-27 09:00/);
+        const mixed = page.locator('.row[data-id="demo-secondary"]');
+        assert.equal(await mixed.locator('.plan-grp').count(), 2, 'existing and future plans stay separate');
+        assert.equal(await mixed.locator('.qbar').count(), 2, 'future grant adds no spendable bar');
+        assert.equal(await mixed.locator('.scheduled-grant').count(), 1);
+      } else {
+        assert.equal(await row.locator('.scheduled-grant').count(), 0);
+        assert.match(await row.locator('.q-win-reset').innerText(), /3亿\/3亿/);
+      }
+    }
     if (path === '/') {
       const buttons = await page.locator('.compact-toolbar button').evaluateAll(buttons =>
         buttons.map(button => ({ top: button.getBoundingClientRect().top,

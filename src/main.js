@@ -712,7 +712,23 @@ function planGroupHtml(p) {
       ${exp ? `<span class="pg-exp${exp.warn ? " warn-line" : ""}" title="${esc(t("q.validUntil", { date: exp.text }))}">${esc(t("q.validUntilShort", { date: exp.text }))}</span>` : ""}
     </div>
     ${slotRowsHtml(p.items)}
+    ${scheduledGrantsHtml(p)}
   </div>`;
+}
+
+function scheduledGrantsHtml(plan) {
+  return (plan.scheduled_grants || []).map((grant) => {
+    const date = new Date(grant.effective_at);
+    if (!Number.isFinite(date.getTime())) return "";
+    const time = new Intl.DateTimeFormat(localeTag(), {
+      month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+    }).format(date);
+    const amount = `${fmtTokens(grant.units)} ${grant.unit === "token" ? "Token" : grant.unit}`;
+    return `<div class="scheduled-grant" title="${esc(t("q.scheduledGrantHint"))}">
+      <span class="sg-model">${esc(grant.name)}</span><span class="sg-amount">${esc(amount)}</span>
+      <span class="sg-status">${esc(t("q.scheduledGrant", { date: time }))}</span>
+    </div>`;
+  }).join("");
 }
 
 function acctQuotaSlot(id) {
@@ -729,12 +745,19 @@ function acctQuotaSlot(id) {
     if (plans.length >= 2) {
       inner = plans.map(planGroupHtml).join("");
     } else {
+      const plan = plans[0];
       const items = q.data.items || [];
       const wins = items.filter((it) => itemKind(it) === "prompt_count");
       if (wins.length) {
         inner = wins.map((it) => winRowHtml(it, " mini")).join("");
       } else {
         inner = slotRowsHtml(items);
+      }
+      if (plan) {
+        const label = plan.name || plan.tier || "";
+        inner = `${label ? `<div class="pg-name single-plan-name" title="${esc(label)}">${esc(label)}</div>` : ""}
+          ${inner}${scheduledGrantsHtml(plan)}
+          ${!items.length && !(plan.scheduled_grants || []).length ? `<span class="aq-loading">${t("q.awaitingQuota")}</span>` : ""}`;
       }
     }
   }

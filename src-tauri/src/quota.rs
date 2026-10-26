@@ -229,6 +229,14 @@ pub struct QuotaItem {
     pub reset: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct ScheduledGrant {
+    pub name: String,
+    pub units: f64,
+    pub unit: String,
+    pub effective_at: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, Default)]
 pub struct PlanSlot {
     #[serde(rename = "plan_id", skip_serializing_if = "String::is_empty")]
@@ -246,6 +254,8 @@ pub struct PlanSlot {
     pub remaining: Option<f64>,
     pub percent_used: Option<f64>,
     pub items: Vec<QuotaItem>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub scheduled_grants: Vec<ScheduledGrant>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, Default)]
@@ -790,9 +800,9 @@ fn looks_like_dt(s: &str) -> bool {
 }
 
 fn extract_expire(obj: &Value) -> Option<String> {
-    const KEYS: [&str; 12] = [
+    const KEYS: [&str; 13] = [
         "nextRenewTime", "expireTime", "expire_time", "endTime", "end_time", "expireAt", "expiredTime", "validEndTime",
-        "expires_at", "expiresAt", "expired_at", "period_end",
+        "expires_at", "expiresAt", "expired_at", "period_end", "ends_at",
     ];
     for k in KEYS {
         let Some(v) = obj.get(k) else { continue };
@@ -983,6 +993,7 @@ fn normalize_quota_limit(limit_resp: &Value, sub_resp: Option<&Value>) -> QuotaO
             remaining,
             percent_used,
             items: items.clone(),
+            scheduled_grants: Vec::new(),
         }]
     } else {
         vec![]
@@ -1167,6 +1178,10 @@ fn normalize_balance(balance_data: &Value) -> QuotaOverview {
     }
     let mut pool = vec![];
     flatten_numbers(&balance, "", &mut pool);
+    // A claimed plan can precede its balance buckets (for example Global Build
+    // activates at 23:00). Keep future grants separate from spendable balances.
+    let server_now = balance.get("server_time").and_then(epoch_seconds)
+        .unwrap_or_else(|| chrono::Utc::now().timestamp());
 
     let mut slots: Vec<PlanSlot> = balance
         .get("plans")
@@ -1189,6 +1204,7 @@ fn normalize_balance(balance_data: &Value) -> QuotaOverview {
                         tier_code: Some(tier_code),
                         name: Some(pname.filter(|s| !s.trim().is_empty()).unwrap_or(pid)),
                         expire: extract_expire(pl),
+                        scheduled_grants: scheduled_grants(pl, server_now),
                         ..Default::default()
                     }
                 })
@@ -1385,5 +1401,108 @@ fn normalize_balance(balance_data: &Value) -> QuotaOverview {
         refreshed_at: 0,
         source: String::new(),
         plans: slots,
+    }
+}
+
+fn epoch_seconds(value: &Value) -> Option<i64> {
+    let n = value.as_i64().or_else(|| value.as_str()?.parse().ok())?;
+    (n > 0).then_some(if n > 1_000_000_000_000 { n / 1000 } else { n })
+}
+
+fn scheduled_grants(plan: &Value, now: i64) -> Vec<ScheduledGrant> {
+    if plan.get("ends_at").and_then(epoch_seconds).is_some_and(|end| end <= now) {
+        return Vec::new();
+    }
+    plan.get("entitlements").and_then(Value::as_array).into_iter().flatten()
+        .filter_map(|entitlement| {
+            let effective_at = entitlement.get("effective_at")
+                .or_else(|| plan.get("starts_at")).and_then(epoch_seconds)?;
+            if effective_at <= now { return None; }
+            let units = entitlement.get("grant_units").and_then(to_number)
+                .filter(|units| units.is_finite() && *units > 0.0)?;
+            Some(ScheduledGrant {
+                name: entitlement.get("show_name").and_then(Value::as_str)
+                    .unwrap_or("Unknown").to_string(),
+                units,
+                unit: entitlement.get("unit_type").and_then(Value::as_str)
+                    .unwrap_or("quota").to_string(),
+                effective_at: effective_at.checked_mul(1000)?,
+            })
+        }).collect()
+}
+
+#[cfg(test)]
+mod scheduled_grant_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn global_build(now: i64) -> Value {
+        json!({"code": 0, "data": {"server_time": now, "balances": [], "plans": [{
+            "plan_id": "zcode-v3-start-plan-nt-1026", "name": "ZCODE GLOBAL BUILD",
+            "status": "active", "starts_at": 1793017333_i64, "ends_at": 1793062800_i64,
+            "entitlements": [{"show_name": "GLM-5.3-Flash", "grant_units": 300000000,
+                "unit_type": "token", "effective_at": 1793026800_i64}]
+        }]}})
+    }
+
+    #[test]
+    fn future_grant_is_visible_without_inventing_spendable_balance() {
+        let overview = normalize_balance(&global_build(1793026425));
+        let plan = &overview.plans[0];
+        assert_eq!(plan.name.as_deref(), Some("ZCODE GLOBAL BUILD"));
+        assert_eq!(plan.scheduled_grants[0].units, 300000000.0);
+        assert_eq!(plan.scheduled_grants[0].effective_at, 1793026800000);
+        assert_eq!(plan.expire, extract_expire(&json!({"expires_at": 1793062800_i64})));
+        assert!(plan.expire.is_some());
+        assert!(overview.items.is_empty());
+        assert_eq!((overview.total, overview.used, overview.remaining), (None, None, None));
+    }
+
+    #[test]
+    fn activation_boundary_uses_server_time_and_never_fakes_arrival() {
+        for now in [1793026800_i64, 1793026801, 1793062800] {
+            let overview = normalize_balance(&global_build(now));
+            assert!(overview.plans[0].scheduled_grants.is_empty());
+            assert_eq!(overview.remaining, None);
+        }
+        let mut response = global_build(1793026800);
+        response["data"]["balances"] = json!([{"plan_id": "zcode-v3-start-plan-nt-1026",
+            "show_name": "GLM-5.3-Flash", "total_units": 300000000, "used_units": 10,
+            "remaining_units": 299999990, "unit_type": "token"}]);
+        let overview = normalize_balance(&response);
+        assert_eq!(overview.remaining, Some(299999990.0));
+        assert_eq!(overview.items.len(), 1);
+        assert!(overview.plans[0].scheduled_grants.is_empty());
+    }
+
+    #[test]
+    fn invalid_times_or_grants_do_not_become_scheduled_balances() {
+        let mut plan = global_build(1793026425)["data"]["plans"][0].clone();
+        for value in [json!(null), json!("unknown"), json!(-1)] {
+            plan["entitlements"][0]["effective_at"] = value;
+            assert!(scheduled_grants(&plan, 1793026425).is_empty());
+        }
+        plan["entitlements"][0]["effective_at"] = json!(1793026800000_i64);
+        assert_eq!(scheduled_grants(&plan, 1793026425)[0].effective_at, 1793026800000);
+        plan["entitlements"][0]["grant_units"] = json!(-1);
+        assert!(scheduled_grants(&plan, 1793026425).is_empty());
+    }
+
+    #[test]
+    fn merge_preserves_existing_balance_and_deduplicates_future_grants() {
+        let existing = normalize_balance(&json!({"data": {
+            "plans": [{"plan_id": "existing-start", "name": "Existing Start Plan", "status": "active"}],
+            "balances": [{"plan_id": "existing-start", "show_name": "GLM-5.3-Flash",
+                "total_units": 5000000, "used_units": 1000000, "remaining_units": 4000000}]
+        }}));
+        let pending = normalize_balance(&global_build(1793026425));
+        let merged = merge_parts(vec![existing, pending.clone(), pending]);
+        assert_eq!(merged.plans.len(), 2);
+        assert_eq!(merged.items.len(), 1);
+        assert_eq!(merged.remaining, Some(4000000.0));
+        let event = &merged.plans[1];
+        assert_eq!(event.scheduled_grants.len(), 1);
+        assert_eq!(event.scheduled_grants[0].units, 300000000.0);
+        assert_eq!(event.remaining, None);
     }
 }

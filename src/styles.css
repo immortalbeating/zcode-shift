@@ -917,6 +917,11 @@ input:focus-visible,
   min-width: 0;
 }
 .pg-exp { margin-left: auto; flex: none; font-family: var(--mono); font-size: 11.5px; color: var(--ink-mute); white-space: nowrap; }
+.single-plan-name { margin-bottom: 4px; }
+.scheduled-grant { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 8px; padding: 4px 0; font-size: 12px; }
+.sg-model { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sg-amount { color: var(--brand-text); font-family: var(--mono); white-space: nowrap; }
+.sg-status { grid-column: 1 / -1; color: var(--brand-text); }
 
 .pw-mask {
   position: fixed;

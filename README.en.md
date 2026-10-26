@@ -6,6 +6,8 @@ The compact UI has its own name and vector mark, a single icon toolbar with hove
 
 This version also repairs event-claim verification, discovers explicit claim actions in both billing previews and marketing deliveries, and correlates asynchronous results with the requested account and plan.
 
+Claimed grants scheduled for later show their amount, start time, and expiry. Spendable balances remain based on the server's balance buckets; future grants are not counted as available tokens.
+
 ![Z·SHIFT — synthetic demonstration data](docs/screenshot.png)
 
 ## Development

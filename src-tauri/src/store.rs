@@ -106,6 +106,8 @@ pub struct Settings {
     pub language: Option<String>,
     #[serde(default)]
     pub auto_claim: Option<bool>,
+    #[serde(default)]
+    pub auto_claim_interval_minutes: Option<u64>,
 }
 
 impl Settings {
@@ -113,6 +115,9 @@ impl Settings {
     pub fn close_to_tray(&self) -> bool { self.close_to_tray.unwrap_or(true) }
     pub fn hot_switch(&self) -> bool { self.hot_switch.unwrap_or(false) }
     pub fn auto_claim(&self) -> bool { self.auto_claim.unwrap_or(false) }
+    pub fn auto_claim_interval_minutes(&self) -> u64 {
+        self.auto_claim_interval_minutes.filter(|v| matches!(v, 2 | 5 | 10)).unwrap_or(5)
+    }
     pub fn auth_proxy(&self) -> Option<&str> {
         if self.auth_proxy_on.unwrap_or(false) {
             self.auth_proxy_url.as_deref().map(str::trim).filter(|s| !s.is_empty())
@@ -145,11 +150,13 @@ pub struct AppState {
     pub accounts: Vec<AccountSummary>,
     pub zcode_path: String,
     pub zcode_path_ok: bool,
+    pub zcode_path_custom: bool,
     pub store_dir: String,
     pub launch_after_switch: bool,
     pub close_to_tray: bool,
     pub hot_switch: bool,
     pub auto_claim: bool,
+    pub auto_claim_interval_minutes: u64,
     pub auth_proxy_on: bool,
     pub auth_proxy_url: Option<String>,
     pub language: String,
@@ -348,7 +355,17 @@ pub fn launch_zcode(path: &str) -> Result<(), String> {
     if !p.exists() {
         return Err(trf("err.zcode.missing", &[("path", path)]));
     }
-    detached(Command::new(&p))
+    let command = {
+        #[cfg(target_os = "macos")]
+        if p.is_dir() && p.extension().and_then(|suffix| suffix.to_str()).is_some_and(|suffix| suffix.eq_ignore_ascii_case("app")) {
+            let mut command = Command::new("open");
+            command.arg("-a").arg(&p);
+            command
+        } else { Command::new(&p) }
+        #[cfg(not(target_os = "macos"))]
+        { Command::new(&p) }
+    };
+    detached(command)
         .spawn()
         .map_err(|e| trf("err.zcode.launch", &[("e", &e.to_string())]))?;
     Ok(())
@@ -433,17 +450,48 @@ pub fn normalize_zcode_path(raw: &str) -> Option<String> {
     (!t.is_empty()).then(|| t.to_string())
 }
 
+pub fn validate_zcode_path(raw: &str) -> Result<Option<String>, String> {
+    let Some(path) = normalize_zcode_path(raw) else { return Ok(None) };
+    let target = Path::new(&path);
+    let metadata = fs::metadata(target).map_err(|_| "path_missing".to_string())?;
+    #[cfg(windows)]
+    let executable = metadata.is_file() && target.extension().and_then(|s| s.to_str())
+        .is_some_and(|s| s.eq_ignore_ascii_case("exe"));
+    #[cfg(target_os = "macos")]
+    let executable = if metadata.is_dir() && target.extension().and_then(|s| s.to_str())
+        .is_some_and(|s| s.eq_ignore_ascii_case("app")) {
+        // A bundle must contain metadata and an executable, not merely have an .app suffix.
+        let plist = target.join("Contents/Info.plist");
+        let executable_dir = target.join("Contents/MacOS");
+        plist.is_file() && fs::read_dir(executable_dir).ok().is_some_and(|mut entries| entries.any(|entry| {
+            entry.ok().is_some_and(|e| is_executable_file(&e.path()))
+        }))
+    } else { is_executable_file(target) };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let executable = metadata.is_file() && is_executable_file(target);
+    #[cfg(not(any(windows, unix)))]
+    let executable = metadata.is_file();
+    if !executable { return Err("path_not_executable".to_string()); }
+    Ok(Some(path))
+}
+
+#[cfg(unix)]
+fn is_executable_file(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
 pub fn effective_zcode_path(paths: &Paths) -> (String, bool) {
     effective_zcode_path_in(paths, &client_path_candidates(std::env::consts::OS))
 }
 
 fn effective_zcode_path_in(paths: &Paths, candidates: &[String]) -> (String, bool) {
     let s = load_settings(paths);
-    if let Some(p) = s.zcode_path.as_ref().filter(|p| PathBuf::from(p).exists()) {
+    if let Some(p) = s.zcode_path.as_ref().filter(|p| matches!(validate_zcode_path(p), Ok(Some(_)))) {
         return (p.clone(), true);
     }
     for c in candidates {
-        if !c.is_empty() && PathBuf::from(c).exists() {
+        if !c.is_empty() && matches!(validate_zcode_path(c), Ok(Some(_))) {
             return (c.clone(), true);
         }
     }
@@ -1406,13 +1454,39 @@ pub fn get_state(paths: &Paths) -> Result<AppState, String> {
         accounts: summaries,
         zcode_path,
         zcode_path_ok,
+        zcode_path_custom: settings.zcode_path.as_deref().is_some_and(|p| !p.trim().is_empty()),
         store_dir: paths.store_dir().to_string_lossy().to_string(),
         launch_after_switch: settings.launch_after_switch(),
         close_to_tray: settings.close_to_tray(),
         hot_switch: settings.hot_switch(),
         auto_claim: settings.auto_claim(),
+        auto_claim_interval_minutes: settings.auto_claim_interval_minutes(),
         auth_proxy_on: settings.auth_proxy_on.unwrap_or(false),
         auth_proxy_url: settings.auth_proxy_url.clone(),
         language: crate::i18n::current().as_str().to_string(),
     })
+}
+
+#[cfg(test)]
+mod settings_support_tests {
+    use super::*;
+    #[test]
+    fn interval_defaults_and_rejects_unsupported_values() {
+        for (value, expected) in [(None, 5), (Some(2), 2), (Some(5), 5), (Some(10), 10), (Some(1), 5)] {
+            assert_eq!(Settings { auto_claim_interval_minutes: value, ..Default::default() }.auto_claim_interval_minutes(), expected);
+        }
+    }
+    #[test]
+    fn validates_path_without_launching() {
+        assert_eq!(validate_zcode_path("  ").unwrap(), None);
+        let dir = std::env::temp_dir().join(format!("zcode-path-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        assert_eq!(validate_zcode_path(&dir.join("missing").to_string_lossy()), Err("path_missing".into()));
+        assert_eq!(validate_zcode_path(&dir.to_string_lossy()), Err("path_not_executable".into()));
+        let file = dir.join(if cfg!(windows) { "client.exe" } else { "client" });
+        fs::write(&file, b"test").unwrap();
+        #[cfg(unix)] { use std::os::unix::fs::PermissionsExt; fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).unwrap(); }
+        assert_eq!(validate_zcode_path(&file.to_string_lossy()).unwrap(), Some(file.to_string_lossy().into_owned()));
+        fs::remove_dir_all(dir).unwrap();
+    }
 }

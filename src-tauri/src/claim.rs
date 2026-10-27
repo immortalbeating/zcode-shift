@@ -51,7 +51,8 @@ pub struct ClaimOutcome {
     pub server_time: Option<i64>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ClaimError {
     pub code: i64,
     pub message: String,
@@ -224,6 +225,12 @@ pub fn preview_plans(
     config: Option<&Value>,
     device_mid: Option<String>,
 ) -> Result<Vec<ClaimPlan>, String> {
+    preview_plans_detailed(home, creds, config, device_mid).map_err(|error| error.message)
+}
+
+pub fn preview_plans_detailed(
+    home: &Path, creds: &Value, config: Option<&Value>, device_mid: Option<String>,
+) -> Result<Vec<ClaimPlan>, ClaimError> {
     let secret = zcrypto::default_secret(home);
     let token = claim_token(creds, config, &secret)?;
     let url = format!(
@@ -236,7 +243,7 @@ pub fn preview_plans(
     Ok(merge_plans(plans, marketing))
 }
 
-fn marketing_plans(token: &str, mid: Option<String>) -> Result<Vec<ClaimPlan>, String> {
+fn marketing_plans(token: &str, mid: Option<String>) -> Result<Vec<ClaimPlan>, ClaimError> {
     let mut req = agent().get(MARKETING_TOUCH_URL);
     for (k, v) in quota::zai_billing_headers_with_mid(token, mid) {
         req = req.set(&k, &v);
@@ -245,12 +252,15 @@ fn marketing_plans(token: &str, mid: Option<String>) -> Result<Vec<ClaimPlan>, S
         .set("X-Client-Language", "zh-CN")
         .set("X-ZCode-App-Version", &quota::zcode_app_version())
         .call()
-        .map_err(|e| http_err("Marketing campaign discovery failed", e))?
+        .map_err(|e| request_error("Marketing campaign discovery failed", e))?
         .into_string()
         .map_err(|e| format!("Marketing campaign discovery failed: {e}"))?;
     let body: Value = serde_json::from_str(&resp)
         .map_err(|e| format!("Marketing campaign discovery returned invalid JSON: {e}"))?;
-    parse_marketing_plans(&body)
+    if body.get("code").and_then(Value::as_i64).is_some_and(|code| code != 0) {
+        return Err(claim_error(body["code"].as_i64().unwrap(), &body));
+    }
+    parse_marketing_plans(&body).map_err(Into::into)
 }
 
 fn merge_plans(preview: Vec<ClaimPlan>, marketing: Vec<ClaimPlan>) -> Vec<ClaimPlan> {
@@ -333,20 +343,20 @@ fn http_err(prefix: &str, e: ureq::Error) -> String {
     format!("{prefix} {e}")
 }
 
-fn preview_once(url: &str, token: &str, mid: Option<String>) -> Result<Vec<ClaimPlan>, String> {
+fn preview_once(url: &str, token: &str, mid: Option<String>) -> Result<Vec<ClaimPlan>, ClaimError> {
     let mut req = agent().get(url);
     for (k, v) in quota::zai_billing_headers_with_mid(token, mid) {
         req = req.set(&k, &v);
     }
     let resp = req
         .call()
-        .map_err(|e| http_err(&crate::i18n::tr("err.claim.preview_req"), e))?
+        .map_err(|e| request_error(&crate::i18n::tr("err.claim.preview_req"), e))?
         .into_string()
         .map_err(|e| crate::i18n::trf("err.http.read", &[("e", &e.to_string())]))?;
     let v: Value = serde_json::from_str(&resp).unwrap_or(Value::String(resp));
     let code = v.get("code").and_then(|c| c.as_i64()).unwrap_or(-1);
     if code != 0 {
-        return Err(failure_message(code, &v));
+        return Err(claim_error(code, &v));
     }
     let plans = v
         .pointer("/data/plans")
@@ -382,11 +392,7 @@ pub fn submit_claim(
     }
     let resp = req
         .send_json(serde_json::json!({ "plan_id": plan_id }))
-        .map_err(|e| ClaimError {
-            code: -1,
-            message: http_err(&crate::i18n::tr("err.claim.claim_req"), e),
-            next_at: None,
-        })?
+        .map_err(claim_request_error)?
         .into_string()
         .map_err(|e| ClaimError {
             code: -1,
@@ -399,6 +405,28 @@ pub fn submit_claim(
         return Err(claim_error(code, &v));
     }
     Ok(v)
+}
+
+fn claim_request_error(error: ureq::Error) -> ClaimError {
+    request_error(&crate::i18n::tr("err.claim.claim_req"), error)
+}
+
+fn request_error(prefix: &str, error: ureq::Error) -> ClaimError {
+    let (code, next_at) = match &error {
+        ureq::Error::Status(code, response) => {
+            let next = response.header("Retry-After").and_then(|header| retry_after_at(header, chrono::Utc::now().timestamp_millis()));
+            (*code as i64, next)
+        }
+        _ => (-1, None),
+    };
+    ClaimError { code, next_at, message: http_err(prefix, error) }
+}
+
+fn retry_after_at(header: &str, now: i64) -> Option<i64> {
+    header.parse::<i64>().ok().filter(|seconds| *seconds >= 0)
+        .and_then(|seconds| seconds.checked_mul(1000))
+        .and_then(|delay| now.checked_add(delay))
+        .or_else(|| chrono::DateTime::parse_from_rfc2822(header).ok().map(|time| time.timestamp_millis()))
 }
 
 pub fn fetch_captcha_config() -> Result<CaptchaConfig, String> {
@@ -536,6 +564,16 @@ pub fn failure_message(code: i64, body: &Value) -> String {
 mod marketing_tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn http_failure_preserves_status_and_retry_after() {
+        let response = ureq::Response::new(429, "Too Many Requests", "").unwrap();
+        let failure = claim_request_error(ureq::Error::Status(429, response));
+        assert_eq!(failure.code, 429);
+        assert_eq!(retry_after_at("12", 1_000), Some(13_000));
+        assert_eq!(retry_after_at("Wed, 21 Oct 2015 07:28:00 GMT", 0), Some(1445412480000));
+        for header in ["-1", "unknown", "9223372036854775807"] { assert_eq!(retry_after_at(header, 1_000), None); }
+    }
 
     #[test]
     fn extracts_only_claim_actions_and_structured_copy() {

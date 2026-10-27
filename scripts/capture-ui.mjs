@@ -36,6 +36,7 @@ try {
     const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: scale,
       reducedMotion: 'reduce', timezoneId: 'Asia/Shanghai' });
     await context.addInitScript(installFixture, { language, scenario });
+    if (name === 'settings-360-zh') await context.addInitScript(() => localStorage.setItem('zshift.claim-history.v1', JSON.stringify([{accountId:'demo-primary', planId:'demo', planName:'Synthetic campaign', status:'success', at:1793000000000, elapsedMs:1200}])));
     const page = await context.newPage(), errors = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(`http://127.0.0.1:5187${path}`);
@@ -65,16 +66,17 @@ try {
     assert.deepEqual(errors, [], name);
     if (path === '/settings.html') {
       assert.deepEqual(await page.locator('.settings-group').evaluateAll(groups => groups.map(group => group.dataset.group)),
-        ['general', 'switch', 'network', 'library', 'about']);
+        ['general', 'claim', 'switch', 'network', 'library', 'advanced', 'about']);
       const repository = page.locator('.settings-repo');
       assert.equal(await repository.getAttribute('href'), 'https://github.com/immortalbeating/zcode-shift');
       assert.equal((await repository.innerText()).trim(), 'immortalbeating/zcode-shift');
       assert.doesNotMatch(await page.locator('.settings').innerText(), /pjpv|zcode.switch|superidiot1201/i);
-      assert.equal(await page.getByRole('switch').count(), 5, 'all settings switches remain available');
+      assert.equal(await page.getByRole('switch', { includeHidden: true }).count(), 6, 'all settings switches remain available');
       const inputNames = await page.locator('.settings input').evaluateAll(inputs => inputs.map(input =>
         document.querySelector(`label[for="${input.id}"]`)?.textContent.trim()));
       assert.ok(inputNames.every(Boolean), 'path and proxy fields need visible labels');
       assert.equal(await page.locator('.settings-detail[open]').count(), 0, 'long notes are collapsed by default');
+      assert.equal(await page.locator('[data-note=proxy-editor]').evaluate(el => el.open), scenario === 'long-settings');
     }
     if (['scheduled', 'global-active'].includes(scenario)) {
       const row = page.locator('.row[data-id="demo-primary"]');
@@ -135,40 +137,90 @@ try {
       assert.deepEqual(external.map(call => call.args.url), ['https://github.com/immortalbeating/zcode-shift']);
       assert.equal(context.pages().length, 1, 'repository click uses native IPC only');
 
-      for (const [action, checked] of [['actions.toggleAutostart()', true], ["actions.toggleBehavior('tray')", false],
-        ["actions.toggleBehavior('launch')", false], ["actions.toggleBehavior('hot')", false], ['actions.toggleAuthProxy()', true]]) {
-        await page.locator(`button[click="${action}"]`).click();
-        await page.waitForFunction(({action, checked}) => [...document.querySelectorAll('button[click]')]
-          .find(button => button.getAttribute('click') === action)?.getAttribute('aria-checked') === String(checked), {action, checked});
-      }
-      await page.locator('[data-note="hot"] summary').click();
-      await page.locator('[data-note="proxy"] summary').click();
-      const proxy = page.getByLabel('代理地址', { exact: true });
-      await proxy.fill('http://127.0.0.1:7890');
-      await page.getByRole('button', { name: '保存代理地址', exact: true }).click();
-      await page.waitForFunction(() => window.__fixtureCalls.some(call => call.command === 'set_auth_proxy'
-        && call.args.on === true && call.args.url === 'http://127.0.0.1:7890'));
-      assert.equal(await page.locator('.settings-detail[open]').count(), 2, 'expanded notes survive a settings refresh');
-      const pathInput = page.getByLabel('ZCode 程序路径', { exact: true });
-      const samplePath = 'C:\\Apps\\ZCode\\ZCode.exe';
-      await pathInput.fill(samplePath);
-      await page.getByRole('button', { name: '保存程序路径', exact: true }).click();
-      await page.waitForFunction(path => window.__fixtureCalls.some(call => call.command === 'set_zcode_path'
-        && call.args.path === path), samplePath);
-      for (const [label, command] of [['浏览', 'pick_zcode_path'], ['导入账号文件', 'import_pick_files'], ['导出全部（加密）', 'export_all_pick_path']]) {
-        await page.getByRole('button', { name: label, exact: true }).click();
-        await page.waitForFunction(command => window.__fixtureCalls.some(call => call.command === command), command);
-      }
-      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      const click = action => page.locator(`[click="${action}"]`).click();
+      await page.locator('[data-note="path"] summary').click();
+      await page.locator('[data-note="advanced"] > summary').click();
+      await page.locator('[data-note="history"] summary').click();
+      await page.getByText('Synthetic campaign', { exact: true }).waitFor();
+      await page.locator('[data-note="history"]').scrollIntoViewIfNeeded();
+      await page.screenshot({ path: resolve(output, 'settings-history-expanded.png') });
+      await page.locator('[click="actions.clearHistory()"]').click();
+      assert.equal(await page.getByText('Synthetic campaign', { exact: true }).count(), 0);
+      assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('zshift.claim-history.v1')).records.length), 0);
+      const pathInput = page.locator('#zcode-path');
+      const proxy = page.locator('#auth-proxy');
+      await pathInput.fill('C:\\draft\\ZCode.exe');
       await page.getByRole('radio', { name: 'English', exact: true }).click();
       await page.waitForFunction(() => document.querySelector('.lang-opt[aria-checked="true"]')?.textContent.trim() === 'English');
-      assert.equal(await page.getByRole('radio', { name: 'English', exact: true }).getAttribute('aria-checked'), 'true');
-      const localizedProxy = page.locator('#auth-proxy');
-      await localizedProxy.scrollIntoViewIfNeeded();
-      assert.ok((await localizedProxy.boundingBox()).width <= width - 24);
+      assert.equal(await pathInput.inputValue(), 'C:\\draft\\ZCode.exe');
+      await click("actions.toggleBehavior('tray')");
+      await page.waitForFunction(() => window.__fixtureCalls.some(c => c.command === 'set_behavior' && c.args.closeToTray === false));
+      assert.equal(await pathInput.inputValue(), 'C:\\draft\\ZCode.exe');
+      await page.locator('#claim-interval').selectOption('2');
+      await page.waitForFunction(() => window.__fixtureCalls.some(c => c.command === 'set_behavior' && c.args.autoClaimIntervalMinutes === 2));
+      await page.evaluate(() => window.__fixtureControl.pathError = true);
+      await click('actions.savePath()');
+      await page.locator('#zcode-path[aria-invalid="true"]').waitFor();
+      assert.equal(await pathInput.inputValue(), 'C:\\draft\\ZCode.exe');
+      await page.evaluate(() => window.__fixtureControl.pathError = false);
+      await click('actions.autoPath()');
+      await page.waitForFunction(() => window.__fixtureCalls.some(c => c.command === 'set_zcode_path' && c.args.path === ''));
+      for (const [action, command] of [['actions.browsePath()', 'pick_zcode_path'], ['actions.importFiles()', 'import_pick_files'], ['actions.exportAll()', 'export_all_pick_path'], ['actions.toggleAutostart()', 'autostart_set']]) {
+        await click(action);
+        await page.waitForFunction(command => window.__fixtureCalls.some(c => c.command === command), command);
+      }
+      for (const [action, field] of [["actions.toggleBehavior('launch')", 'launchAfterSwitch'], ["actions.toggleBehavior('hot')", 'hotSwitch']]) {
+        await click(action);
+        await page.waitForFunction(field => window.__fixtureCalls.some(c => c.command === 'set_behavior' && c.args[field] === false), field);
+      }
+      await click('actions.toggleAuthProxy()');
+      await page.locator('[data-note="proxy-editor"][open]').waitFor();
+      await proxy.fill('http://127.0.0.1:7890');
+      await click('actions.toggleAuthProxy()');
+      await page.waitForFunction(() => window.__fixtureCalls.filter(c => c.command === 'set_auth_proxy').length === 2);
+      let proxyCalls = await page.evaluate(() => window.__fixtureCalls.filter(c => c.command === 'set_auth_proxy'));
+      assert.deepEqual(proxyCalls.map(c => c.args.url), ['http://127.0.0.1:7000', 'http://127.0.0.1:7000'], 'toggling must not persist the proxy draft');
+      assert.equal(await proxy.inputValue(), 'http://127.0.0.1:7890');
+      await page.evaluate(() => window.__fixtureControl.proxyError = true);
+      await click('actions.saveProxy()');
+      await page.locator('#auth-proxy[aria-invalid="true"]').waitFor();
+      assert.equal(await proxy.inputValue(), 'http://127.0.0.1:7890');
+      await page.evaluate(() => window.__fixtureControl.proxyError = false);
+      await click('actions.testProxy()');
+      await page.waitForFunction(() => window.__fixtureCalls.some(c => c.command === 'test_auth_proxy' && c.args.url === 'http://127.0.0.1:7890'));
+      await page.waitForFunction(() => document.querySelector('[data-note="proxy-editor"] .field-feedback')?.textContent.includes('25'));
+      const reachable = await page.locator('[data-note="proxy-editor"] .field-feedback').innerText();
+      await page.evaluate(() => window.__fixtureControl.proxyReachable = false);
+      await click('actions.testProxy()');
+      await page.waitForFunction(text => { const value = document.querySelector('[data-note="proxy-editor"] .field-feedback')?.textContent; return value && value !== text && value.includes('Cannot connect'); }, reachable);
+      await click('actions.saveProxy()');
+      await page.waitForFunction(() => window.__fixtureCalls.some(c => c.command === 'set_auth_proxy' && c.args.url === 'http://127.0.0.1:7890'));
+      for (const status of ['available', 'current', 'unpublished', 'error']) {
+        await page.evaluate(status => window.__fixtureControl.updateStatus = status, status);
+        await click('actions.checkUpdate()');
+        if (status === 'available') {
+          await page.locator('[click="actions.openRelease()"]').waitFor();
+          await click('actions.openRelease()');
+          await page.waitForFunction(() => window.__fixtureCalls.some(c => c.command === 'open_external' && c.args.url.endsWith('/releases/tag/v1.0.5')));
+        } else {
+          const expected = { current: 'latest stable release', unpublished: 'No stable release', error: 'Could not check updates' }[status];
+          await page.locator('.settings-about .field-feedback').getByText(expected, { exact: false }).waitFor();
+          assert.equal(await page.locator('[click="actions.openRelease()"]').count(), 0);
+        }
+      }
+      await page.evaluate(() => document.querySelector('.toast-zone')?.replaceChildren());
+      await page.locator('[data-note="path"]').scrollIntoViewIfNeeded();
+      await page.screenshot({ path: resolve(output, 'settings-path-expanded.png') });
+      await page.locator('[data-note="proxy-editor"]').scrollIntoViewIfNeeded();
+      await page.screenshot({ path: resolve(output, 'settings-proxy-expanded.png') });
+      await page.locator('[data-note="advanced"]').scrollIntoViewIfNeeded();
+      await page.screenshot({ path: resolve(output, 'settings-advanced-expanded.png') });
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     }
     if (name === 'settings-long-360-en') {
-      for (const summary of await page.locator('.settings-detail summary').all()) await summary.click();
+      await page.locator('[data-note="path"] > summary').click();
+      await page.locator('[data-note="advanced"] > summary').click();
+      for (const summary of await page.locator('.settings-detail > summary').all()) await summary.click();
       await page.locator('#zcode-path').focus();
       await page.locator('#zcode-path').press('End');
       assert.ok((await page.locator('#zcode-path').inputValue()).length > 300);

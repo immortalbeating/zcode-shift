@@ -22,6 +22,9 @@ for (const k of en) if (!zh.has(k)) errs.push(`zh 缺 key: ${k}`);
 const DYNAMIC = [
   "q.win.daily", "q.win.weekly", "q.win.monthly", "q.win.cycle",
   "prov.bigmodel", "prov.zai",
+  "m.claimPhase.verifying", "m.claimPhase.submitting",
+  "s.historySuccess", "s.historyFailed", "s.historyTimeout", "s.historyInteractive",
+  "s.pathMissing", "s.pathInvalid", "s.proxyInvalid", "s.proxyRequired",
 ];
 
 const callRe = /\bt\(\s*(["'])((?:(?!\1).)+)\1/g; // 只匹配引号串；模板串走 DYNAMIC

@@ -285,7 +285,10 @@ pub fn run(args: &[String]) -> (String, i32) {
                 return (err(&crate::i18n::tr("cli.usage.setpath")), 2);
             };
             let mut s = load_settings(&paths);
-            s.zcode_path = Some(p);
+            s.zcode_path = match validate_zcode_path(&p) {
+                Ok(path) => path,
+                Err(e) => return (err(&e), 2),
+            };
             match save_settings(&paths, &s) {
                 Ok(()) => ok(json!({})),
                 Err(e) => return (err(&e), 1),

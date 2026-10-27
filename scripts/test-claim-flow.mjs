@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { claimIntervalMs, claimRetryAt, discoverAccounts } from '../src/claim-automation.js';
 
 const source = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
 const slice = (from, to) => source.slice(source.indexOf(from), source.indexOf(to, source.indexOf(from)));
@@ -10,7 +11,8 @@ const listeners = new Map();
 const toasts = [];
 const deliver = payload => listeners.get('claim://result')({payload});
 const context = vm.createContext({
-  Date, Set, JSON, Number,
+  Date, Set, Map, JSON, Number, claimIntervalMs, claimRetryAt, discoverAccounts,
+  claimProgress() {}, recordClaim() {}, updateClaimStatus() {},
   setTimeout(fn, ms) { const id = ++serial; if (ms <= 5000) queueMicrotask(fn); else timers.set(id, fn); return id; },
   clearTimeout(id) { timers.delete(id); },
   invoke: async () => {}, render() {}, uiLocked: () => true,
@@ -24,12 +26,15 @@ let state = {auto_claim:true, accounts:[{id:'a'}]};
 let claimable = {}, autoClaimCooldown = {}, autoClaimPlanCooldown = {};
 let autoClaimRunning = false, claimActive = false, claimAllRunning = false, autoAbortRequested = false;
 let refreshClaim = {running:false}, lastAutoRound = null;
+let currentAttempt = null, autoClaimDue = {}, claimFailures = {}, autoClaimTimer = null, autoScheduleKey = "";
+let preparedDiscoveries = new Map();
 const AUTO_CLAIM_INTERVAL_MS=600000, AUTO_CLAIM_WAIT_MS=45000, AUTO_CLAIM_PER_ACCOUNT_CAP=5, AUTO_CLAIM_ACCT_GAP_MS=5000;
 ${slice('function waitForClaimResult(', 'async function awaitClaimPreviewFresh')}
 ${slice('async function awaitClaimPreviewFresh(', 'const accountName')}
-${slice('function autoClaimCooldownFor(', 'function quotaBarHtml(')}
+${slice('function autoInterval(', 'function claimStatusHtml(')}
+${slice('async function discoverClaimAccount(', 'function quotaBarHtml(')}
 ${slice('listen("claim://result"', 'listen("captcha://interactive"')}
-globalThis.api = {startClaimAndWait, autoClaimTick, snapshot:()=>({claimWaiter, autoClaimCooldown,autoClaimPlanCooldown,lastAutoRound}), reset:()=>{claimable={};autoClaimCooldown={};autoClaimPlanCooldown={};lastAutoRound=null;}};
+globalThis.api = {startClaimAndWait, autoClaimTick, snapshot:()=>({claimWaiter, autoClaimCooldown,autoClaimPlanCooldown,lastAutoRound}), due:()=>{autoClaimDue={};}, reset:()=>{clearTimeout(autoClaimTimer); claimable={};autoClaimCooldown={};autoClaimPlanCooldown={};autoClaimDue={};claimFailures={};lastAutoRound=null;}};
 `, context);
 
 // The backend can emit synchronously before its command promise resolves.
@@ -76,10 +81,11 @@ assert.equal(previews, 1, 'only an explicit success refreshes plans');
 assert.equal(Object.keys(context.api.snapshot().autoClaimPlanCooldown).length, 3);
 assert.equal(Object.keys(context.api.snapshot().autoClaimCooldown).length, 0);
 starts.length=0;
+context.api.due();
 await context.api.autoClaimTick();
 assert.deepEqual(starts, ['success'], 'cooled failed plans do not block another plan');
-assert.equal(timers.size, 0);
 context.api.reset();
+assert.equal(timers.size, 0);
 context.invoke = async () => { throw Error('query failed'); };
 await context.api.autoClaimTick();
 assert.ok(context.api.snapshot().autoClaimCooldown.a > Date.now());

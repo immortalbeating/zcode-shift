@@ -7,6 +7,8 @@ mod oauth;
 mod quota;
 mod store;
 mod zcrypto;
+mod app_support;
+mod claim_cache;
 
 use serde_json::{json, Value};
 use std::sync::Mutex;
@@ -21,6 +23,7 @@ const TRAY_ID: &str = "main";
 
 static STORE_LOCK: Mutex<()> = Mutex::new(());
 
+#[derive(Clone)]
 struct PendingClaim {
     account_id: String,
     account_name: String,
@@ -29,6 +32,7 @@ struct PendingClaim {
     credentials: Value,
     config: Option<Value>,
     device_mid: String,
+    started: std::time::Instant,
 }
 
 static PENDING_CLAIM: Mutex<Option<PendingClaim>> = Mutex::new(None);
@@ -224,10 +228,12 @@ async fn get_account_quota(id: String) -> Result<quota::QuotaOverview, String> {
 
 #[tauri::command]
 async fn claim_preview(id: String) -> Result<Vec<claim::ClaimPlan>, String> {
-    let paths = Paths::detect();
-    let mid = store::ensure_virtual_device_mid(&paths, &id)?;
-    let acc = load_account(&paths, &id)?;
-    claim::preview_plans(&paths.home, &acc.credentials, acc.config.as_ref(), Some(mid))
+    tauri::async_runtime::spawn_blocking(move || {
+        let paths = Paths::detect();
+        let mid = store::ensure_virtual_device_mid(&paths, &id)?;
+        let acc = load_account(&paths, &id)?;
+        claim_cache::preview(&paths, &acc, &mid, false).map(|(plans, _)| plans).map_err(|error| error.message)
+    }).await.map_err(|_| "Activity query worker failed".to_string())?
 }
 
 #[derive(serde::Serialize)]
@@ -236,10 +242,19 @@ struct ClaimRefreshResult {
     plans: Vec<claim::ClaimPlan>,
     activated: bool,
     activation_error: Option<String>,
+    activation_ms: u64,
+    preview_ms: u64,
+    total_ms: u64,
 }
 
 #[tauri::command]
-async fn claim_refresh(id: String) -> Result<ClaimRefreshResult, String> {
+async fn claim_refresh(id: String) -> Result<ClaimRefreshResult, claim::ClaimError> {
+    tauri::async_runtime::spawn_blocking(move || claim_refresh_blocking(id)).await
+        .map_err(|_| claim::ClaimError::from("Activity query worker failed".to_string()))?
+}
+
+fn claim_refresh_blocking(id: String) -> Result<ClaimRefreshResult, claim::ClaimError> {
+    let started = std::time::Instant::now();
     let paths = Paths::detect();
     let mid = store::ensure_virtual_device_mid(&paths, &id)?;
     let acc = load_account(&paths, &id)?;
@@ -251,8 +266,12 @@ async fn claim_refresh(id: String) -> Result<ClaimRefreshResult, String> {
             },
             None => (false, None),
         };
-    let plans = claim::preview_plans(&paths.home, &acc.credentials, acc.config.as_ref(), Some(mid))?;
-    Ok(ClaimRefreshResult { plans, activated, activation_error })
+    let activation_ms = started.elapsed().as_millis() as u64;
+    let preview_started = std::time::Instant::now();
+    let (plans, _) = claim_cache::preview(&paths, &acc, &mid, true)?;
+    Ok(ClaimRefreshResult { plans, activated, activation_error, activation_ms,
+        preview_ms: preview_started.elapsed().as_millis() as u64,
+        total_ms: started.elapsed().as_millis() as u64 })
 }
 
 #[tauri::command]
@@ -265,15 +284,17 @@ async fn claim_start(
     if CLAIM_SUBMITTING.load(std::sync::atomic::Ordering::SeqCst) {
         return Err("A claim is still being submitted; wait for its result".into());
     }
-    let paths = Paths::detect();
-    let mid = store::ensure_virtual_device_mid(&paths, &id)?;
-    let acc = load_account(&paths, &id)?;
-    let plans = claim::preview_plans(&paths.home, &acc.credentials, acc.config.as_ref(), Some(mid.clone()))?;
-    let plan = plans
-        .iter()
-        .find(|p| p.plan_id == plan_id)
-        .ok_or_else(|| i18n::tr("err.claim.gone"))?;
-    let display = if plan.name.is_empty() { plan.plan_id.clone() } else { plan.name.clone() };
+    let requested_plan_id = plan_id.clone();
+    let (acc, mid, display) = tauri::async_runtime::spawn_blocking(move || {
+        let paths = Paths::detect();
+        let mid = store::ensure_virtual_device_mid(&paths, &id)?;
+        let acc = load_account(&paths, &id)?;
+        let (plans, _) = claim_cache::preview(&paths, &acc, &mid, false).map_err(|error| error.message)?;
+        let plan = plans.iter().find(|p| p.plan_id == requested_plan_id)
+            .ok_or_else(|| i18n::tr("err.claim.gone"))?;
+        let display = if plan.name.is_empty() { plan.plan_id.clone() } else { plan.name.clone() };
+        Ok::<_, String>((acc, mid, display))
+    }).await.map_err(|_| "Activity query worker failed".to_string())??;
 
     let mut guard = pending_guard();
     if guard.is_some() || CLAIM_SUBMITTING.load(std::sync::atomic::Ordering::SeqCst) {
@@ -282,17 +303,20 @@ async fn claim_start(
     *guard = Some(PendingClaim {
         account_id: acc.id.clone(),
         account_name: acc.name.clone(),
-        plan_id: plan.plan_id.clone(),
+        plan_id: plan_id.clone(),
         plan_name: display.clone(),
         credentials: acc.credentials,
         config: acc.config,
         device_mid: mid,
+        started: std::time::Instant::now(),
     });
     drop(guard);
     if let Err(error) = open_captcha_window(&app, auto.unwrap_or(false)) {
         *pending_guard() = None;
         return Err(error);
     }
+    let _ = app.emit("claim://progress", json!({"accountId": acc.id,
+        "planId": plan_id, "phase": "verifying"}));
     Ok(json!({ "account": acc.name, "plan": display }))
 }
 
@@ -307,25 +331,32 @@ async fn claim_captcha_submit(
     param: String,
     region: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let mut guard = pending_guard();
-    if CLAIM_SUBMITTING.swap(true, std::sync::atomic::Ordering::SeqCst) {
-        return Err("A claim is still being submitted".into());
-    }
+    let pending = {
+        let mut guard = pending_guard();
+        if CLAIM_SUBMITTING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return Err("A claim is still being submitted".into());
+        }
+        match guard.take() {
+            Some(pending) => pending,
+            None => {
+                CLAIM_SUBMITTING.store(false, std::sync::atomic::Ordering::SeqCst);
+                return Err(i18n::tr("err.claim.none_pending"));
+            }
+        }
+    };
     let _submission = ClaimSubmission;
-    let pending = guard.take().ok_or_else(|| i18n::tr("err.claim.none_pending"))?;
-    drop(guard);
-    let paths = Paths::detect();
-    let res = claim::submit_claim(
-        &paths.home,
-        &pending.credentials,
-        pending.config.as_ref(),
-        &pending.plan_id,
-        &param,
-        region.as_deref(),
-        Some(pending.device_mid),
-    );
+    let _ = app.emit("claim://progress", json!({"accountId": pending.account_id,
+        "planId": pending.plan_id, "phase": "submitting"}));
+    let submitting_at = std::time::Instant::now();
+    claim_cache::invalidate(&pending.account_id);
+    let worker_pending = pending.clone();
+    let res = tauri::async_runtime::spawn_blocking(move || claim::submit_claim(
+        &Paths::detect().home, &worker_pending.credentials, worker_pending.config.as_ref(),
+        &worker_pending.plan_id, &param, region.as_deref(), Some(worker_pending.device_mid)))
+        .await.unwrap_or_else(|_| Err("Claim submission worker failed".to_string().into()));
+    claim_cache::invalidate(&pending.account_id);
     close_captcha_window(&app);
-    let payload = match res {
+    let mut payload = match res {
         Ok(v) => {
             let ms = |k: &str| -> Option<i64> {
                 v.pointer(&format!("/data/plan/{k}"))
@@ -347,7 +378,6 @@ async fn claim_captcha_submit(
             };
             let mut p = serde_json::to_value(&outcome).unwrap_or(Value::Null);
             p["ok"] = json!(true);
-            let _ = app.emit("claim://result", &p);
             p
         }
         Err(e) => {
@@ -358,10 +388,12 @@ async fn claim_captcha_submit(
                 &pending.plan_name,
                 &e,
             );
-            let _ = app.emit("claim://result", &p);
-            return Ok(p);
+            p
         }
     };
+    payload["timings"] = json!({"totalMs": pending.started.elapsed().as_millis() as u64,
+        "submitMs": submitting_at.elapsed().as_millis() as u64});
+    let _ = app.emit("claim://result", &payload);
     Ok(payload)
 }
 
@@ -882,7 +914,11 @@ async fn set_behavior(
     close_to_tray: Option<bool>,
     hot_switch: Option<bool>,
     auto_claim: Option<bool>,
+    auto_claim_interval_minutes: Option<u64>,
 ) -> Result<(), String> {
+    if auto_claim_interval_minutes.is_some_and(|value| ![2, 5, 10].contains(&value)) {
+        return Err("invalid_claim_interval".into());
+    }
     let _guard = store_guard();
     let paths = Paths::detect();
     let mut s = load_settings(&paths);
@@ -897,6 +933,9 @@ async fn set_behavior(
     }
     if let Some(v) = auto_claim {
         s.auto_claim = Some(v);
+    }
+    if let Some(v) = auto_claim_interval_minutes {
+        s.auto_claim_interval_minutes = Some(v);
     }
     let r = save_settings(&paths, &s);
     rebuild_tray(&app);
@@ -1144,7 +1183,7 @@ async fn set_zcode_path(app: AppHandle, path: String) -> Result<(), String> {
     let _guard = store_guard();
     let paths = Paths::detect();
     let mut s = load_settings(&paths);
-    s.zcode_path = store::normalize_zcode_path(&path);
+    s.zcode_path = store::validate_zcode_path(&path)?;
     let r = save_settings(&paths, &s);
     rebuild_tray(&app);
     let _ = app.emit("state-changed", ());
@@ -1191,7 +1230,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
+            Some(vec!["--background"]),
         ))
         .invoke_handler(tauri::generate_handler![
             get_state,
@@ -1229,6 +1268,8 @@ pub fn run() {
             open_external,
             open_settings,
             reveal_main,
+            app_support::test_auth_proxy,
+            app_support::check_updates,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -1246,6 +1287,11 @@ pub fn run() {
         })
         .setup(|app| {
             i18n::init_from_settings(&store::load_settings(&Paths::detect()));
+            // Keep an already-enabled startup entry pointed at this version.
+            let autostart = app.state::<AutoLaunchManager>();
+            if autostart.is_enabled().unwrap_or(false) {
+                let _ = autostart.enable();
+            }
             if let Ok(data_dir) = app.path().app_local_data_dir() {
                 flowlog::init(&data_dir);
             }

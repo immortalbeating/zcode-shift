@@ -12,7 +12,13 @@ export function installFixture({ language = 'zh', scenario = 'accounts' } = {}) 
     zcode_path: 'C:\\Apps\\ZCode\\ZCode.exe', zcode_path_ok: true,
     store_dir: '<synthetic fixture>', launch_after_switch: true, close_to_tray: true,
     hot_switch: true, auto_claim: scenario === 'running', auth_proxy_on: false, auth_proxy_url: '', language };
+  if (scenario === 'long-settings') {
+    state.zcode_path = `C:\\Applications\\${'Long directory name\\'.repeat(16)}ZCode.exe`;
+    state.auth_proxy_url = 'http://127.0.0.1:7890';
+    state.auth_proxy_on = true;
+  }
   const callbacks = new Map(), listeners = new Map();
+  let autostartEnabled = false;
   let callbackId = 0;
   const quota = id => {
     if (id === 'demo-primary' && ['scheduled', 'global-active'].includes(scenario)) {
@@ -60,7 +66,7 @@ export function installFixture({ language = 'zh', scenario = 'accounts' } = {}) 
       window.__fixtureCalls.push({ command, args });
       if (command === 'plugin:event|listen') { listeners.set(args.event, args.handler); return args.handler; }
       if (command === 'plugin:event|unlisten') return;
-      if (command === 'app_version') return '1.0.2';
+      if (command === 'app_version') return '1.0.3';
       if (command === 'get_state') return structuredClone(state);
       if (command === 'get_account_quota') {
         if (scenario === 'loading') return new Promise(() => {});
@@ -70,12 +76,22 @@ export function installFixture({ language = 'zh', scenario = 'accounts' } = {}) 
       if (command === 'claim_preview') return args.id === 'demo-secondary' && scenario === 'accounts' ? [plan] : [];
       if (command === 'claim_refresh') return { plans: scenario !== 'running' && args.id === 'demo-secondary' ? [plan] : [] };
       if (command === 'set_language') { state.language = args.lang; return; }
-      if (command === 'set_behavior') { if ('autoClaim' in args) state.auto_claim = args.autoClaim; return; }
+      if (command === 'set_behavior') {
+        for (const [argument, field] of Object.entries({autoClaim: 'auto_claim',
+          launchAfterSwitch: 'launch_after_switch', closeToTray: 'close_to_tray', hotSwitch: 'hot_switch'})) {
+          if (args[argument] != null) state[field] = args[argument];
+        }
+        return;
+      }
+      if (command === 'set_auth_proxy') { state.auth_proxy_on = args.on; state.auth_proxy_url = args.url; return; }
+      if (command === 'set_zcode_path') { state.zcode_path = args.path; return; }
+      if (command === 'autostart_set') { autostartEnabled = args.enable; return autostartEnabled; }
+      if (['pick_zcode_path', 'import_pick_files', 'export_all_pick_path'].includes(command)) return {picked: false};
       if (command === 'rename_account') {
         accounts.find(a => a.id === args.id).name = args.name;
         return { id: args.id, name: args.name };
       }
-      if (command === 'autostart_status') return false;
+      if (command === 'autostart_status') return autostartEnabled;
       if (['reveal_main', 'open_settings', 'open_external', 'claim_cancel'].includes(command)) return;
       throw Error(`Fixture has no implementation for ${command}`);
     },

@@ -25,12 +25,15 @@ try {
     ['settings-360-zh', 360, 720, 'zh', 'accounts', '/settings.html'],
     ['settings-520-zh', 520, 760, 'zh', 'accounts', '/settings.html'],
     ['settings-360-en', 360, 820, 'en', 'accounts', '/settings.html'],
+    ['settings-full-360-zh', 360, 1240, 'zh', 'accounts', '/settings.html'],
+    ['settings-long-360-en', 360, 720, 'en', 'long-settings', '/settings.html'],
+    ['settings-hidpi-360-zh', 360, 720, 'zh', 'accounts', '/settings.html', 2],
     ['scheduled-360-zh', 360, 820, 'zh', 'scheduled', '/'],
     ['scheduled-360-en', 360, 820, 'en', 'scheduled', '/'],
     ['global-active-360-zh', 360, 820, 'zh', 'global-active', '/'],
   ];
-  for (const [name, width, height, language, scenario, path] of cases) {
-    const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1,
+  for (const [name, width, height, language, scenario, path, scale = 1] of cases) {
+    const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: scale,
       reducedMotion: 'reduce', timezoneId: 'Asia/Shanghai' });
     await context.addInitScript(installFixture, { language, scenario });
     const page = await context.newPage(), errors = [];
@@ -60,6 +63,19 @@ try {
     assert.ok(inspection.renderer && !/SwiftShader|llvmpipe|software/i.test(inspection.renderer),
       `GPU renderer required, received ${inspection.renderer}`);
     assert.deepEqual(errors, [], name);
+    if (path === '/settings.html') {
+      assert.deepEqual(await page.locator('.settings-group').evaluateAll(groups => groups.map(group => group.dataset.group)),
+        ['general', 'switch', 'network', 'library', 'about']);
+      const repository = page.locator('.settings-repo');
+      assert.equal(await repository.getAttribute('href'), 'https://github.com/immortalbeating/zcode-shift');
+      assert.equal((await repository.innerText()).trim(), 'immortalbeating/zcode-shift');
+      assert.doesNotMatch(await page.locator('.settings').innerText(), /pjpv|zcode.switch|superidiot1201/i);
+      assert.equal(await page.getByRole('switch').count(), 5, 'all settings switches remain available');
+      const inputNames = await page.locator('.settings input').evaluateAll(inputs => inputs.map(input =>
+        document.querySelector(`label[for="${input.id}"]`)?.textContent.trim()));
+      assert.ok(inputNames.every(Boolean), 'path and proxy fields need visible labels');
+      assert.equal(await page.locator('.settings-detail[open]').count(), 0, 'long notes are collapsed by default');
+    }
     if (['scheduled', 'global-active'].includes(scenario)) {
       const row = page.locator('.row[data-id="demo-primary"]');
       assert.equal(await row.getByText('ZCODE GLOBAL BUILD', { exact: true }).count(), 1);
@@ -112,12 +128,55 @@ try {
       assert.ok(await page.evaluate(() => document.activeElement !== document.body));
     }
     if (name === 'settings-360-zh') {
+      const repository = page.locator('.settings-repo');
+      await repository.click();
+      await page.waitForFunction(() => window.__fixtureCalls.some(call => call.command === 'open_external'));
+      const external = await page.evaluate(() => window.__fixtureCalls.filter(call => call.command === 'open_external'));
+      assert.deepEqual(external.map(call => call.args.url), ['https://github.com/immortalbeating/zcode-shift']);
+      assert.equal(context.pages().length, 1, 'repository click uses native IPC only');
+
+      for (const [action, checked] of [['actions.toggleAutostart()', true], ["actions.toggleBehavior('tray')", false],
+        ["actions.toggleBehavior('launch')", false], ["actions.toggleBehavior('hot')", false], ['actions.toggleAuthProxy()', true]]) {
+        await page.locator(`button[click="${action}"]`).click();
+        await page.waitForFunction(({action, checked}) => [...document.querySelectorAll('button[click]')]
+          .find(button => button.getAttribute('click') === action)?.getAttribute('aria-checked') === String(checked), {action, checked});
+      }
+      await page.locator('[data-note="hot"] summary').click();
+      await page.locator('[data-note="proxy"] summary').click();
+      const proxy = page.getByLabel('代理地址', { exact: true });
+      await proxy.fill('http://127.0.0.1:7890');
+      await page.getByRole('button', { name: '保存代理地址', exact: true }).click();
+      await page.waitForFunction(() => window.__fixtureCalls.some(call => call.command === 'set_auth_proxy'
+        && call.args.on === true && call.args.url === 'http://127.0.0.1:7890'));
+      assert.equal(await page.locator('.settings-detail[open]').count(), 2, 'expanded notes survive a settings refresh');
+      const pathInput = page.getByLabel('ZCode 程序路径', { exact: true });
+      const samplePath = 'C:\\Apps\\ZCode\\ZCode.exe';
+      await pathInput.fill(samplePath);
+      await page.getByRole('button', { name: '保存程序路径', exact: true }).click();
+      await page.waitForFunction(path => window.__fixtureCalls.some(call => call.command === 'set_zcode_path'
+        && call.args.path === path), samplePath);
+      for (const [label, command] of [['浏览', 'pick_zcode_path'], ['导入账号文件', 'import_pick_files'], ['导出全部（加密）', 'export_all_pick_path']]) {
+        await page.getByRole('button', { name: label, exact: true }).click();
+        await page.waitForFunction(command => window.__fixtureCalls.some(call => call.command === command), command);
+      }
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       await page.getByRole('radio', { name: 'English', exact: true }).click();
       await page.waitForFunction(() => document.querySelector('.lang-opt[aria-checked="true"]')?.textContent.trim() === 'English');
       assert.equal(await page.getByRole('radio', { name: 'English', exact: true }).getAttribute('aria-checked'), 'true');
-      const proxy = page.locator('input.auth-proxy');
-      await proxy.scrollIntoViewIfNeeded();
-      assert.ok((await proxy.boundingBox()).width <= width - 24);
+      const localizedProxy = page.locator('#auth-proxy');
+      await localizedProxy.scrollIntoViewIfNeeded();
+      assert.ok((await localizedProxy.boundingBox()).width <= width - 24);
+    }
+    if (name === 'settings-long-360-en') {
+      for (const summary of await page.locator('.settings-detail summary').all()) await summary.click();
+      await page.locator('#zcode-path').focus();
+      await page.locator('#zcode-path').press('End');
+      assert.ok((await page.locator('#zcode-path').inputValue()).length > 300);
+      await page.keyboard.press('Tab');
+      assert.equal(await page.evaluate(() => document.activeElement?.textContent.trim()), 'Browse');
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      await page.locator('.settings-about').scrollIntoViewIfNeeded();
+      await page.screenshot({ path: resolve(output, 'settings-long-expanded-bottom.png') });
     }
     report.captures.push({ name, width, height, language, scenario, ...inspection });
     await context.close();

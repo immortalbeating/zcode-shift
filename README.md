@@ -2,7 +2,7 @@
 
 ZCode 多账号切换与额度查看工具。保留紧凑的桌面操作方式，统一账号、套餐和活动领取的显示与反馈。
 
-基于 [pjpv/zcode-switch](https://github.com/pjpv/zcode-switch) 独立维护，遵循原项目的 [MIT 许可证](LICENSE)。Z·SHIFT 与 ZCode 官方无隶属关系。
+由 [immortalbeating](https://github.com/immortalbeating/zcode-shift) 维护，采用 [MIT 许可证](LICENSE)。Z·SHIFT 与 ZCode 官方无隶属关系。
 
 [English](README.en.md) · [来源与改动](NOTICE.md)
 
@@ -15,6 +15,7 @@ ZCode 多账号切换与额度查看工具。保留紧凑的桌面操作方式�
 - 手动或自动领取当前可领取活动；自动领取默认关闭，开启后定期检测。
 - 已领取但尚未生效的活动显示赠送额度、生效时间和到期时间；可用余额按服务端实际返回显示。
 - 界面支持中文与英文；托盘、开机自启、登录代理和 CLI 保留。
+- 设置按常规、账号切换、登录与网络、账号数据、关于分组；详细说明可按需展开。
 
 ## 这个版本的调整
 

@@ -1,12 +1,14 @@
 # Z·SHIFT
 
-An independently maintained ZCode account-switching and quota companion, derived from [pjpv/zcode-switch](https://github.com/pjpv/zcode-switch) under the [MIT license](LICENSE).
+A ZCode account-switching and quota companion maintained by [immortalbeating](https://github.com/immortalbeating/zcode-shift), available under the [MIT license](LICENSE).
 
 The compact UI has its own name and vector mark, a single icon toolbar with hover/focus hints, and a graphite / warm-gold palette. Account avatars, primary actions, quota colors, and spacing take cues from the maintainer's AGY·SWITCH. Chinese and English are supported. Screenshots use synthetic accounts only.
 
 This version also repairs event-claim verification, discovers explicit claim actions in both billing previews and marketing deliveries, and correlates asynchronous results with the requested account and plan.
 
 Claimed grants scheduled for later show their amount, start time, and expiry. Spendable balances remain based on the server's balance buckets; future grants are not counted as available tokens.
+
+Settings are grouped into General, Account switching, Sign-in & network, Account data, and About. Detailed explanations can be expanded when needed.
 
 ![Z·SHIFT — synthetic demonstration data](docs/screenshot.png)
 

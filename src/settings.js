@@ -4,7 +4,7 @@ import { esc, toast, openPwModal, installDelegation, dismissSplash } from "./ui.
 import { ic } from "./icons.js";
 import { init, t, lang, stripErr } from "./i18n.js";
 
-import { name as brandName, repo, upstream, mark as brandMark } from "./brand.js";
+import { name as brandName, repo, mark as brandMark } from "./brand.js";
 
 const $app = document.getElementById("app");
 let state = null;
@@ -35,10 +35,6 @@ const actions = {
 
   async openGitHub() {
     await invoke("open_external", { url: repo });
-  },
-
-  async openUpstream() {
-    await invoke("open_external", { url: upstream });
   },
 
   async setLang(l) {
@@ -149,9 +145,14 @@ const actions = {
   },
 };
 
-const toggle = (on, onclickAttr, label, desc) => `
+const detail = (id, summary, body) => `
+  <details class="settings-detail" data-note="${id}">
+    <summary>${esc(summary)}</summary><p>${esc(body)}</p>
+  </details>`;
+
+const toggle = (on, onclickAttr, label, desc, note = "") => `
   <div class="tog-row">
-    <div class="tog-info"><div class="tog-label">${label}</div><div class="tog-desc">${desc}</div></div>
+    <div class="tog-info"><div class="tog-label">${esc(label)}</div><div class="tog-desc">${esc(desc)}</div>${note}</div>
     <button class="toggle${on ? " on" : ""}" role="switch" aria-checked="${on}" aria-label="${label}" click="${onclickAttr}">
       <span class="knob"></span>
     </button>
@@ -172,40 +173,72 @@ function render() {
     return;
   }
   const s = state;
+  const scrollTop = $app.scrollTop;
+  const openNotes = new Set([...$app.querySelectorAll("details[open]")].map((el) => el.dataset.note));
   document.title = `${brandName} ${t("s.title")}`;
   $app.innerHTML = `
-    <header class="topbar">
-      <div class="brand">${brandMark}<div class="brand-copy"><div class="wordmark">${brandName} <span class="ver">/ ${t("s.title")}</span></div><div class="brand-purpose">${t("brand.purpose")}</div></div></div>
+    <header class="topbar settings-header">
+      <div class="brand">${brandMark}<h1>${t("s.title")}</h1></div>
+      <div class="settings-version"><span class="wordmark">${brandName}</span>${appVer ? `<span>v${esc(appVer)}</span>` : ""}</div>
     </header>
-    <section class="settings open">
-      ${langSeg(s.language || "zh")}
-      <label>${t("s.behaviorLabel")}</label>
-      ${toggle(autostart, "actions.toggleAutostart()", t("s.autostart"), t("s.autostartDesc"))}
-      ${toggle(s.launch_after_switch, "actions.toggleBehavior('launch')", t("s.launchAfter"), t("s.launchAfterDesc"))}
-      ${toggle(s.close_to_tray, "actions.toggleBehavior('tray')", t("s.closeTray"), t("s.closeTrayDesc"))}
-      ${toggle(s.hot_switch, "actions.toggleBehavior('hot')", t("s.hotSwitch"), t("s.hotSwitchDesc"))}
-      <label style="margin-top:14px">${t("s.authLabel")}</label>
-      ${toggle(s.auth_proxy_on, "actions.toggleAuthProxy()", t("s.proxyToggle"), t("s.proxyToggleDesc"))}
-      <div class="path-line" style="margin-top:6px">
-        <input class="zcode-path auth-proxy" type="text" value="${esc(s.auth_proxy_url || "")}"
-          placeholder="${t("s.proxyPh")}" keydown="onProxyKey(event)">
-        <button class="btn-ghost" click="actions.saveProxy()">${t("common.save")}</button>
-      </div>
-      <label style="margin-top:14px">${t("s.libLabel")}</label>
-      <div class="lib-row">
-        <button class="btn-ghost has-ic" click="actions.importFiles()">${ic("import", 14)} ${t("s.importBtn")}</button>
-        <button class="btn-ghost has-ic" click="actions.exportAll()" ${s.accounts.length ? "" : "disabled"}>${ic("exportAll", 14)} ${t("s.exportAllBtn")}</button>
-      </div>
-      <label style="margin-top:14px">${t("s.pathLabel")}</label>
-      <div class="path-line">
-        <input class="zcode-path" type="text" value="${esc(s.zcode_path)}" placeholder="C:\\Program Files\\ZCode\\ZCode.exe" keydown="onPathKey(event)">
-        <button class="btn-ghost" click="actions.browsePath()">${t("s.browse")}</button>
-        <button class="btn-ghost" click="actions.savePath()">${t("common.save")}</button>
-      </div>
-      <div class="hint">${t("s.hint")}</div>
-      <div class="gh-row"><a class="gh-link" href="${repo}" target="_blank" rel="noopener" click="actions.openGitHub()">${t("brand.repository")}</a>${appVer ? `<span class="ver">v${esc(appVer)}</span>` : ""}</div>
-      <div class="upstream-note">${t("brand.basedOn")} <a class="gh-link" href="${upstream}" target="_blank" rel="noopener" click="actions.openUpstream()">ZCode Switch</a></div>
-    </section>`;
+    <main class="settings open">
+      <section class="settings-group" aria-labelledby="general-heading" data-group="general">
+        <h2 id="general-heading">${t("s.generalLabel")}</h2>
+        ${langSeg(s.language || "zh")}
+        ${toggle(autostart, "actions.toggleAutostart()", t("s.autostart"), t("s.autostartDesc"))}
+        ${toggle(s.close_to_tray, "actions.toggleBehavior('tray')", t("s.closeTray"), t("s.closeTrayDesc"))}
+      </section>
+      <section class="settings-group" aria-labelledby="switch-heading" data-group="switch">
+        <h2 id="switch-heading">${t("s.behaviorLabel")}</h2>
+        ${toggle(s.launch_after_switch, "actions.toggleBehavior('launch')", t("s.launchAfter"), t("s.launchAfterDesc"))}
+        ${toggle(s.hot_switch, "actions.toggleBehavior('hot')", t("s.hotSwitch"), t("s.hotSwitchSummary"),
+          detail("hot", t("s.hotSwitchMore"), t("s.hotSwitchDesc")))}
+        <div class="settings-field">
+          <label for="zcode-path">${t("s.pathLabel")}</label>
+          <input id="zcode-path" class="zcode-path" type="text" value="${esc(s.zcode_path)}"
+            placeholder="C:\\Program Files\\ZCode\\ZCode.exe" aria-describedby="path-hint" keydown="onPathKey(event)">
+          <div class="settings-field-footer">
+            <span id="path-hint">${t("s.pathHint")}</span>
+            <div class="settings-field-actions">
+              <button class="btn-ghost" click="actions.browsePath()">${t("s.browse")}</button>
+              <button class="btn-ghost" click="actions.savePath()" aria-label="${t("s.savePath")}">${t("common.save")}</button>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="settings-group" aria-labelledby="network-heading" data-group="network">
+        <h2 id="network-heading">${t("s.authLabel")}</h2>
+        ${toggle(s.auth_proxy_on, "actions.toggleAuthProxy()", t("s.proxyToggle"), t("s.proxySummary"),
+          detail("proxy", t("s.proxyMore"), t("s.proxyToggleDesc")))}
+        <div class="settings-field">
+          <label for="auth-proxy">${t("s.proxyAddress")}</label>
+          <div class="settings-input-row">
+            <input id="auth-proxy" class="zcode-path auth-proxy" type="text" value="${esc(s.auth_proxy_url || "")}"
+              placeholder="${t("s.proxyPh")}" keydown="onProxyKey(event)">
+            <button class="btn-ghost" click="actions.saveProxy()" aria-label="${t("s.saveProxy")}">${t("common.save")}</button>
+          </div>
+        </div>
+      </section>
+      <section class="settings-group" aria-labelledby="library-heading" data-group="library">
+        <h2 id="library-heading">${t("s.libLabel")}</h2>
+        <p class="settings-copy">${t("s.libraryHint")}</p>
+        <div class="lib-row">
+          <button class="btn-ghost has-ic" click="actions.importFiles()">${ic("import", 14)} ${t("s.importBtn")}</button>
+          <button class="btn-ghost has-ic" click="actions.exportAll()" ${s.accounts.length ? "" : "disabled"}>${ic("exportAll", 14)} ${t("s.exportAllBtn")}</button>
+        </div>
+        ${detail("storage", t("s.storageMore"), t("s.hint"))}
+      </section>
+      <section class="settings-group settings-about" aria-labelledby="about-heading" data-group="about">
+        <h2 id="about-heading">${t("s.aboutLabel")}</h2>
+        <p class="settings-copy">${t("brand.purpose")}</p>
+        <span class="settings-repo-label">${t("brand.repository")}</span>
+        <a class="settings-repo" href="${repo}" target="_blank" rel="noopener" click="actions.openGitHub()">
+          <span>${esc(new URL(repo).pathname.slice(1))}</span>${ic("accountExport", 15)}
+        </a>
+      </section>
+    </main>`;
+  for (const el of $app.querySelectorAll("details")) el.open = openNotes.has(el.dataset.note);
+  $app.scrollTop = scrollTop;
 }
 
 window.actions = actions;

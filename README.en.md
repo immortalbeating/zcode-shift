@@ -8,7 +8,13 @@ This version also repairs event-claim verification, discovers explicit claim act
 
 Claimed grants scheduled for later show their amount, start time, and expiry. Spendable balances remain based on the server's balance buckets; future grants are not counted as available tokens.
 
-Settings are grouped into General, Account switching, Sign-in & network, Account data, and About. Detailed explanations can be expanded when needed.
+Settings are grouped into General, Offer claims, Account switching, Sign-in & network, Account data, Advanced, and About. Low-frequency options and detailed explanations can be expanded when needed.
+
+Offer checks run every 2, 5, or 10 minutes (default: 5). Discovery overlaps for up to two accounts, while claims and official verification remain serial. Empty accounts add no fixed wait. A credential- and device-bound preview cache lasts 10 seconds and is invalidated on submission. Failures use categorized backoff and respect server cooldowns.
+
+The main window shows the current claim stage and next check. Settings keep the last 30 local results with discovery and submission timings, without credentials. Actual claim time still depends on network and official services.
+
+Executable paths support auto-detection, validation, and restoring automatic lookup. Path and proxy drafts survive other settings changes. Proxy testing checks port reachability only. Update checks query this repository's stable GitHub releases without downloading or installing anything; an unpublished release is reported explicitly.
 
 ![Z·SHIFT — synthetic demonstration data](docs/screenshot.png)
 

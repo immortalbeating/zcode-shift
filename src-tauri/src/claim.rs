@@ -125,11 +125,8 @@ fn decrypt_credential(v: &str, secret: &str) -> Option<String> {
     }
 }
 
-fn agent() -> ureq::Agent {
-    ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(10))
-        .timeout(Duration::from_secs(CLAIM_TIMEOUT_SECS))
-        .build()
+fn agent() -> Result<ureq::Agent, String> {
+    crate::service_proxy::agent(Duration::from_secs(CLAIM_TIMEOUT_SECS))
 }
 
 pub const EVENT_REPORT_URL: &str = "https://zcode.z.ai/api/v1/event/report";
@@ -190,10 +187,7 @@ fn device_os_category() -> &'static str {
 }
 
 pub fn report_activation_events(user_id: &str, device_mid: &str) -> Result<(), String> {
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(10))
-        .timeout(Duration::from_secs(ACTIVATION_TIMEOUT_SECS))
-        .build();
+    let agent = crate::service_proxy::agent(Duration::from_secs(ACTIVATION_TIMEOUT_SECS))?;
     for element in ACTIVATION_EVENTS {
         let body = activation_event_body(
             element,
@@ -244,7 +238,7 @@ pub fn preview_plans_detailed(
 }
 
 fn marketing_plans(token: &str, mid: Option<String>) -> Result<Vec<ClaimPlan>, ClaimError> {
-    let mut req = agent().get(MARKETING_TOUCH_URL);
+    let mut req = agent()?.get(MARKETING_TOUCH_URL);
     for (k, v) in quota::zai_billing_headers_with_mid(token, mid) {
         req = req.set(&k, &v);
     }
@@ -340,11 +334,11 @@ fn http_err(prefix: &str, e: ureq::Error) -> String {
             .unwrap_or_default();
         return format!("{prefix} HTTP {code}: {msg}");
     }
-    format!("{prefix} {e}")
+    format!("{prefix} service_request_failed")
 }
 
 fn preview_once(url: &str, token: &str, mid: Option<String>) -> Result<Vec<ClaimPlan>, ClaimError> {
-    let mut req = agent().get(url);
+    let mut req = agent()?.get(url);
     for (k, v) in quota::zai_billing_headers_with_mid(token, mid) {
         req = req.set(&k, &v);
     }
@@ -382,7 +376,7 @@ pub fn submit_claim(
     }
     let secret = zcrypto::default_secret(home);
     let token = claim_token(creds, config, &secret)?;
-    let mut req = agent().post(BILLING_CLAIM_URL);
+    let mut req = agent()?.post(BILLING_CLAIM_URL);
     for (k, v) in quota::zai_billing_headers_with_mid(&token, device_mid) {
         req = req.set(&k, &v);
     }
@@ -432,13 +426,16 @@ fn retry_after_at(header: &str, now: i64) -> Option<i64> {
 pub fn fetch_captcha_config() -> Result<CaptchaConfig, String> {
     let url = format!("{CLIENT_CONFIGS_URL}?app_version={}&platform={}",
         quota::zcode_app_version(), quota::client_platform());
-    let mut req = agent().get(&url);
+    let mut req = agent()?.get(&url);
     for (k, v) in quota::zai_billing_headers("") {
         req = req.set(&k, &v);
     }
     let resp = req
         .call()
-        .map_err(|e| crate::i18n::trf("err.claim.config_req", &[("e", &e.to_string())]))?
+        .map_err(|e| match e {
+            ureq::Error::Transport(_) => "service_request_failed".to_string(),
+            other => crate::i18n::trf("err.claim.config_req", &[("e", &other.to_string())]),
+        })?
         .into_string()
         .map_err(|e| crate::i18n::trf("err.http.read", &[("e", &e.to_string())]))?;
     let v: Value = serde_json::from_str(&resp).unwrap_or(Value::String(resp));

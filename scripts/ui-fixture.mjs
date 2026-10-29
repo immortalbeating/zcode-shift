@@ -11,7 +11,7 @@ export function installFixture({ language = 'zh', scenario = 'accounts' } = {}) 
     active_account_id: 'demo-primary', accounts: scenario === 'empty' ? [] : accounts,
     zcode_path: 'C:\\Apps\\ZCode\\ZCode.exe', zcode_path_ok: true,
     store_dir: '<synthetic fixture>', launch_after_switch: true, close_to_tray: true,
-    hot_switch: true, auto_claim: scenario === 'running', auto_claim_interval_minutes: 5, zcode_path_custom: false, auth_proxy_on: false, auth_proxy_url: 'http://127.0.0.1:7000', language };
+    hot_switch: true, auto_claim: scenario === 'running', auto_claim_interval_minutes: 5, zcode_path_custom: false, auth_proxy_on: false, service_proxy_on: false, auth_proxy_url: 'http://127.0.0.1:7000', language };
   if (scenario === 'long-settings') {
     state.zcode_path = `C:\\Applications\\${'Long directory name\\'.repeat(16)}ZCode.exe`;
     state.auth_proxy_url = 'http://127.0.0.1:7890';
@@ -67,7 +67,7 @@ export function installFixture({ language = 'zh', scenario = 'accounts' } = {}) 
       window.__fixtureCalls.push({ command, args });
       if (command === 'plugin:event|listen') { listeners.set(args.event, args.handler); return args.handler; }
       if (command === 'plugin:event|unlisten') return;
-      if (command === 'app_version') return '1.0.4';
+      if (command === 'app_version') return '1.0.5';
       if (command === 'get_state') return structuredClone(state);
       if (command === 'get_account_quota') {
         if (scenario === 'loading') return new Promise(() => {});
@@ -79,7 +79,7 @@ export function installFixture({ language = 'zh', scenario = 'accounts' } = {}) 
       if (command === 'set_language') { state.language = args.lang; return; }
       if (command === 'set_behavior') {
         for (const [argument, field] of Object.entries({autoClaim: 'auto_claim',
-          launchAfterSwitch: 'launch_after_switch', closeToTray: 'close_to_tray', hotSwitch: 'hot_switch', autoClaimIntervalMinutes: 'auto_claim_interval_minutes'})) {
+          launchAfterSwitch: 'launch_after_switch', closeToTray: 'close_to_tray', hotSwitch: 'hot_switch', autoClaimIntervalMinutes: 'auto_claim_interval_minutes', serviceProxyOn: 'service_proxy_on'})) {
           if (args[argument] != null) state[field] = args[argument];
         }
         return;
@@ -90,7 +90,7 @@ export function installFixture({ language = 'zh', scenario = 'accounts' } = {}) 
       if (command === 'check_updates') {
         const status = window.__fixtureControl.updateStatus;
         if (status === 'error') throw Error('update_network_failed');
-        return { status, currentVersion: '1.0.4', latestVersion: status === 'unpublished' ? null : 'v1.0.5', releaseUrl: status === 'available' ? 'https://github.com/immortalbeating/zcode-shift/releases/tag/v1.0.5' : null };
+        return { status, currentVersion: '1.0.5', latestVersion: status === 'unpublished' ? null : 'v1.0.6', releaseUrl: status === 'available' ? 'https://github.com/immortalbeating/zcode-shift/releases/tag/v1.0.6' : null };
       }
       if (command === 'autostart_set') { autostartEnabled = args.enable; return autostartEnabled; }
       if (['pick_zcode_path', 'import_pick_files', 'export_all_pick_path'].includes(command)) return {picked: false};

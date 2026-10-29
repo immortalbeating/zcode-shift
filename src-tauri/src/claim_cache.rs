@@ -63,8 +63,9 @@ fn cache() -> &'static PreviewCache {
 
 pub fn preview(paths: &store::Paths, account: &store::Account, mid: &str, force: bool)
     -> Result<(Vec<claim::ClaimPlan>, bool), claim::ClaimError> {
+    let proxy_url = crate::service_proxy::proxy_url(paths)?;
     let binding = format!("{:x}", Sha256::digest(serde_json::to_vec(
-        &(&account.credentials, &account.config, mid)).map_err(|_| "Invalid account data".to_string())?));
+        &(&account.credentials, &account.config, mid, proxy_url)).map_err(|_| "Invalid account data".to_string())?));
     cache().read(&account.id, &binding, force, || claim::preview_plans_detailed(
         &paths.home, &account.credentials, account.config.as_ref(), Some(mid.into())))
 }

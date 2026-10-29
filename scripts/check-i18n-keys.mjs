@@ -24,7 +24,7 @@ const DYNAMIC = [
   "prov.bigmodel", "prov.zai",
   "m.claimPhase.verifying", "m.claimPhase.submitting",
   "s.historySuccess", "s.historyFailed", "s.historyTimeout", "s.historyInteractive",
-  "s.pathMissing", "s.pathInvalid", "s.proxyInvalid", "s.proxyRequired",
+  "s.pathMissing", "s.pathInvalid", "s.proxyInvalid", "s.proxyRequired", "s.serviceProxyInvalid",
 ];
 
 const callRe = /\bt\(\s*(["'])((?:(?!\1).)+)\1/g; // 只匹配引号串；模板串走 DYNAMIC

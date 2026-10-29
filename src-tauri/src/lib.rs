@@ -2,6 +2,7 @@ pub mod cipher;
 pub mod cli;
 pub mod i18n;
 mod claim;
+mod service_proxy;
 mod flowlog;
 mod oauth;
 mod quota;
@@ -583,6 +584,10 @@ async fn set_auth_proxy(app: AppHandle, on: bool, url: Option<String>) -> Result
         let _guard = store_guard();
         let paths = Paths::detect();
         let trimmed = url.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        let mut s = load_settings(&paths);
+        if s.service_proxy_on.unwrap_or(false) {
+            service_proxy::validate_url(trimmed)?;
+        }
         let normalized = match trimmed {
             Some(s) => Some(oauth::parse_proxy_url(s)?),
             None => None,
@@ -590,10 +595,11 @@ async fn set_auth_proxy(app: AppHandle, on: bool, url: Option<String>) -> Result
         if on && normalized.is_none() {
             return Err(i18n::tr("err.proxy.need_url"));
         }
-        let mut s = load_settings(&paths);
         s.auth_proxy_on = Some(on);
         s.auth_proxy_url = normalized;
+        let accounts = if s.service_proxy_on.unwrap_or(false) { list_accounts(&paths)? } else { Vec::new() };
         save_settings(&paths, &s)?;
+        for account in accounts { claim_cache::invalidate(&account.id); }
     }
     let _ = app.emit("state-changed", ());
     Ok(())
@@ -915,6 +921,7 @@ async fn set_behavior(
     hot_switch: Option<bool>,
     auto_claim: Option<bool>,
     auto_claim_interval_minutes: Option<u64>,
+    service_proxy_on: Option<bool>,
 ) -> Result<(), String> {
     if auto_claim_interval_minutes.is_some_and(|value| ![2, 5, 10].contains(&value)) {
         return Err("invalid_claim_interval".into());
@@ -922,6 +929,10 @@ async fn set_behavior(
     let _guard = store_guard();
     let paths = Paths::detect();
     let mut s = load_settings(&paths);
+    if let Some(v) = service_proxy_on {
+        if v { service_proxy::validate_url(s.auth_proxy_url.as_deref())?; }
+        s.service_proxy_on = Some(v);
+    }
     if let Some(v) = launch_after_switch {
         s.launch_after_switch = Some(v);
     }
@@ -937,7 +948,11 @@ async fn set_behavior(
     if let Some(v) = auto_claim_interval_minutes {
         s.auto_claim_interval_minutes = Some(v);
     }
+    let accounts = if service_proxy_on.is_some() { list_accounts(&paths)? } else { Vec::new() };
     let r = save_settings(&paths, &s);
+    if r.is_ok() {
+        for account in accounts { claim_cache::invalidate(&account.id); }
+    }
     rebuild_tray(&app);
     let _ = app.emit("state-changed", ());
     r

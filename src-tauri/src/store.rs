@@ -101,6 +101,8 @@ pub struct Settings {
     #[serde(default)]
     pub auth_proxy_on: Option<bool>,
     #[serde(default)]
+    pub service_proxy_on: Option<bool>,
+    #[serde(default)]
     pub auth_proxy_url: Option<String>,
     #[serde(default)]
     pub language: Option<String>,
@@ -117,6 +119,13 @@ impl Settings {
     pub fn auto_claim(&self) -> bool { self.auto_claim.unwrap_or(false) }
     pub fn auto_claim_interval_minutes(&self) -> u64 {
         self.auto_claim_interval_minutes.filter(|v| matches!(v, 2 | 5 | 10)).unwrap_or(5)
+    }
+    pub fn service_proxy(&self) -> Option<&str> {
+        if self.service_proxy_on.unwrap_or(false) {
+            self.auth_proxy_url.as_deref().map(str::trim).filter(|s| !s.is_empty())
+        } else {
+            None
+        }
     }
     pub fn auth_proxy(&self) -> Option<&str> {
         if self.auth_proxy_on.unwrap_or(false) {
@@ -158,6 +167,7 @@ pub struct AppState {
     pub auto_claim: bool,
     pub auto_claim_interval_minutes: u64,
     pub auth_proxy_on: bool,
+    pub service_proxy_on: bool,
     pub auth_proxy_url: Option<String>,
     pub language: String,
 }
@@ -1462,6 +1472,7 @@ pub fn get_state(paths: &Paths) -> Result<AppState, String> {
         auto_claim: settings.auto_claim(),
         auto_claim_interval_minutes: settings.auto_claim_interval_minutes(),
         auth_proxy_on: settings.auth_proxy_on.unwrap_or(false),
+        service_proxy_on: settings.service_proxy_on.unwrap_or(false),
         auth_proxy_url: settings.auth_proxy_url.clone(),
         language: crate::i18n::current().as_str().to_string(),
     })

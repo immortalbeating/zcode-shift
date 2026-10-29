@@ -26,7 +26,7 @@ let state = {auto_claim:true, accounts:[{id:'a'}]};
 let claimable = {}, autoClaimCooldown = {}, autoClaimPlanCooldown = {};
 let autoClaimRunning = false, claimActive = false, claimAllRunning = false, autoAbortRequested = false;
 let refreshClaim = {running:false}, lastAutoRound = null;
-let currentAttempt = null, autoClaimDue = {}, claimFailures = {}, autoClaimTimer = null, autoScheduleKey = "";
+let currentAttempt = null, autoClaimDue = {}, claimFailures = {}, autoClaimTimer = null, autoScheduleKey = "", autoScheduleRoute = null;
 let preparedDiscoveries = new Map();
 const AUTO_CLAIM_INTERVAL_MS=600000, AUTO_CLAIM_WAIT_MS=45000, AUTO_CLAIM_PER_ACCOUNT_CAP=5, AUTO_CLAIM_ACCT_GAP_MS=5000;
 ${slice('function waitForClaimResult(', 'async function awaitClaimPreviewFresh')}
@@ -34,7 +34,10 @@ ${slice('async function awaitClaimPreviewFresh(', 'const accountName')}
 ${slice('function autoInterval(', 'function claimStatusHtml(')}
 ${slice('async function discoverClaimAccount(', 'function quotaBarHtml(')}
 ${slice('listen("claim://result"', 'listen("captcha://interactive"')}
-globalThis.api = {startClaimAndWait, autoClaimTick, snapshot:()=>({claimWaiter, autoClaimCooldown,autoClaimPlanCooldown,lastAutoRound}), due:()=>{autoClaimDue={};}, reset:()=>{clearTimeout(autoClaimTimer); claimable={};autoClaimCooldown={};autoClaimPlanCooldown={};autoClaimDue={};claimFailures={};lastAutoRound=null;}};
+globalThis.api = {startClaimAndWait, autoClaimTick, discoverClaimAccount, route:claimRouteKey,
+  setRoute:(on,url)=>{state.service_proxy_on=on;state.auth_proxy_url=url;},
+  prepare:(id,route,value)=>preparedDiscoveries.set(id,{route,value,at:Date.now()}),
+  snapshot:()=>({claimWaiter, autoClaimCooldown,autoClaimPlanCooldown,lastAutoRound}), due:()=>{autoClaimDue={};}, reset:()=>{clearTimeout(autoClaimTimer); preparedDiscoveries.clear();claimable={};autoClaimCooldown={};autoClaimPlanCooldown={};autoClaimDue={};claimFailures={};lastAutoRound=null;}};
 `, context);
 
 // The backend can emit synchronously before its command promise resolves.
@@ -90,6 +93,17 @@ context.invoke = async () => { throw Error('query failed'); };
 await context.api.autoClaimTick();
 assert.ok(context.api.snapshot().autoClaimCooldown.a > Date.now());
 assert.equal(context.api.snapshot().lastAutoRound.claimed, 0);
+context.api.reset();
+context.api.setRoute(false, 'http://127.0.0.1:7897');
+context.api.prepare('a', context.api.route(), {plans:[{plan_id:'old-direct-offer'}]});
+context.api.setRoute(true, 'http://127.0.0.1:7897');
+let freshRouteQueries = 0;
+context.invoke = async () => { freshRouteQueries++; return {plans:[{plan_id:'proxy-offer'}]}; };
+assert.equal((await context.api.discoverClaimAccount('a',true)).plans[0].plan_id, 'proxy-offer');
+assert.equal(freshRouteQueries, 1, 'switching routes must query again instead of reusing prepared data');
+context.invoke = async () => { context.api.setRoute(false, 'http://127.0.0.1:7897'); return {plans:[{plan_id:'outdated-result'}]}; };
+assert.equal((await context.api.discoverClaimAccount('a')).routeChanged, true, 'in-flight results must be discarded if the route changes');
+context.api.reset();
 assert.match(source, /if \(p\.ok !== true\)/, 'result toast also requires explicit success');
 assert.match(source, /AUTO_CLAIM_FIRST_DELAY_MS = 1_000/);
 console.log('PASS claim flow: fast event, late event isolation, cleanup, plan cooldown, strict success, query cooldown');

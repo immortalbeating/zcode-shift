@@ -124,6 +124,20 @@ const actions = {
       render(); toast(state.auth_proxy_on ? t("s.proxyOnToast") : t("s.proxyOffToast"));
     });
   },
+  async toggleServiceProxy() {
+    if (!state.service_proxy_on && !state.auth_proxy_url?.trim()) {
+      openAfterRender = "proxy-editor"; proxyError = "s.proxyRequired"; render(); return;
+    }
+    await guard(async () => {
+      try {
+        await invoke("set_behavior", { serviceProxyOn: !state.service_proxy_on });
+        await refresh(); render(); toast(t("s.savedToast"));
+      } catch (error) {
+        proxyError = String(error) === "service_proxy_need_url" ? "s.proxyRequired" : "s.serviceProxyInvalid";
+        openAfterRender = "proxy-editor"; render();
+      }
+    });
+  },
   async saveProxy() {
     const value = drafts.proxy.trim();
     await guard(async () => {
@@ -132,7 +146,7 @@ const actions = {
         await invoke("set_auth_proxy", { on: state.auth_proxy_on, url: value });
         if (drafts.proxy.trim() === value) dirty.proxy = false;
         await refresh(); toast(t("s.proxySaved"));
-      } catch { proxyError = "s.proxyInvalid"; }
+      } catch (error) { proxyError = String(error) === "service_proxy_http_required" ? "s.serviceProxyInvalid" : "s.proxyInvalid"; }
       render();
     });
   },
@@ -251,6 +265,7 @@ function render() {
       <section class="settings-group" aria-labelledby="network-heading" data-group="network">
         <h2 id="network-heading">${t("s.authLabel")}</h2>
         ${toggle(s.auth_proxy_on, "actions.toggleAuthProxy()", t("s.proxyToggle"), t("s.proxySummary"), detail("proxy", t("s.proxyMore"), t("s.proxyToggleDesc")))}
+        ${toggle(!!s.service_proxy_on, "actions.toggleServiceProxy()", t("s.serviceProxy"), t("s.serviceProxySummary"))}
         <details class="settings-editor" data-note="proxy-editor"><summary>${t("s.proxyAddress")}<span class="settings-value">${t("s.edit")}</span></summary>
           <div class="settings-field"><label for="auth-proxy">${t("s.proxyAddress")}</label>
             <input id="auth-proxy" class="zcode-path auth-proxy" type="text" value="${esc(drafts.proxy)}" placeholder="${t("s.proxyPh")}" aria-describedby="proxy-hint" aria-invalid="${!!proxyError}" keydown="onProxyKey(event)">
@@ -280,7 +295,7 @@ function render() {
       </section>
     </main>`;
   for (const el of $app.querySelectorAll("details")) {
-    el.open = expanded.has(el.dataset.note) ? expanded.get(el.dataset.note) : el.dataset.note === "proxy-editor" && s.auth_proxy_on;
+    el.open = expanded.has(el.dataset.note) ? expanded.get(el.dataset.note) : el.dataset.note === "proxy-editor" && (s.auth_proxy_on || s.service_proxy_on);
     el.addEventListener("toggle", () => expanded.set(el.dataset.note, el.open));
   }
   document.getElementById("claim-interval").addEventListener("change", event => actions.setClaimInterval(event.target.value));

@@ -25,7 +25,7 @@ try {
     ['settings-360-zh', 360, 720, 'zh', 'accounts', '/settings.html'],
     ['settings-520-zh', 520, 760, 'zh', 'accounts', '/settings.html'],
     ['settings-360-en', 360, 820, 'en', 'accounts', '/settings.html'],
-    ['settings-full-360-zh', 360, 1240, 'zh', 'accounts', '/settings.html'],
+    ['settings-full-360-zh', 360, 1400, 'zh', 'accounts', '/settings.html'],
     ['settings-long-360-en', 360, 720, 'en', 'long-settings', '/settings.html'],
     ['settings-hidpi-360-zh', 360, 720, 'zh', 'accounts', '/settings.html', 2],
     ['scheduled-360-zh', 360, 820, 'zh', 'scheduled', '/'],
@@ -71,7 +71,7 @@ try {
       assert.equal(await repository.getAttribute('href'), 'https://github.com/immortalbeating/zcode-shift');
       assert.equal((await repository.innerText()).trim(), 'immortalbeating/zcode-shift');
       assert.doesNotMatch(await page.locator('.settings').innerText(), /pjpv|zcode.switch|superidiot1201/i);
-      assert.equal(await page.getByRole('switch', { includeHidden: true }).count(), 6, 'all settings switches remain available');
+      assert.equal(await page.getByRole('switch', { includeHidden: true }).count(), 7, 'all settings switches remain available');
       const inputNames = await page.locator('.settings input').evaluateAll(inputs => inputs.map(input =>
         document.querySelector(`label[for="${input.id}"]`)?.textContent.trim()));
       assert.ok(inputNames.every(Boolean), 'path and proxy fields need visible labels');
@@ -176,6 +176,12 @@ try {
       await click('actions.toggleAuthProxy()');
       await page.locator('[data-note="proxy-editor"][open]').waitFor();
       await proxy.fill('http://127.0.0.1:7890');
+      await click('actions.toggleServiceProxy()');
+      await page.waitForFunction(() => window.__fixtureCalls.some(c => c.command === 'set_behavior' && c.args.serviceProxyOn === true));
+      assert.equal(await proxy.inputValue(), 'http://127.0.0.1:7890', 'service proxy toggle must preserve the unsaved address');
+      assert.equal(await page.locator('[click="actions.toggleAuthProxy()"]').getAttribute('aria-checked'), 'true', 'service proxy must not change the sign-in switch');
+      await click('actions.toggleServiceProxy()');
+      await page.waitForFunction(() => window.__fixtureCalls.some(c => c.command === 'set_behavior' && c.args.serviceProxyOn === false));
       await click('actions.toggleAuthProxy()');
       await page.waitForFunction(() => window.__fixtureCalls.filter(c => c.command === 'set_auth_proxy').length === 2);
       let proxyCalls = await page.evaluate(() => window.__fixtureCalls.filter(c => c.command === 'set_auth_proxy'));
@@ -201,7 +207,7 @@ try {
         if (status === 'available') {
           await page.locator('[click="actions.openRelease()"]').waitFor();
           await click('actions.openRelease()');
-          await page.waitForFunction(() => window.__fixtureCalls.some(c => c.command === 'open_external' && c.args.url.endsWith('/releases/tag/v1.0.5')));
+          await page.waitForFunction(() => window.__fixtureCalls.some(c => c.command === 'open_external' && c.args.url.endsWith('/releases/tag/v1.0.6')));
         } else {
           const expected = { current: 'latest stable release', unpublished: 'No stable release', error: 'Could not check updates' }[status];
           await page.locator('.settings-about .field-feedback').getByText(expected, { exact: false }).waitFor();

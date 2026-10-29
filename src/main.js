@@ -32,7 +32,7 @@ let claimActive = false;
 let lastAutoRound = null;
 let autoToggleBusy = false;
 let autoClaimDue = {}, claimFailures = {};
-let autoClaimTimer = null, autoScheduleKey = "", currentAttempt = null;
+let autoClaimTimer = null, autoScheduleKey = "", autoScheduleRoute = null, currentAttempt = null;
 const preparedDiscoveries = new Map();
 
 const NOTCH_COLORS = ["var(--notch-1)", "var(--notch-2)", "var(--notch-3)", "var(--notch-4)", "var(--notch-5)", "var(--notch-6)"];
@@ -172,6 +172,7 @@ async function awaitClaimPreviewFresh(id) {
 const accountName = (id) => (state?.accounts || []).find((a) => a.id === id)?.name || id;
 
 function autoInterval() { return claimIntervalMs(state?.auto_claim_interval_minutes); }
+function claimRouteKey() { return JSON.stringify([!!state?.service_proxy_on, state?.service_proxy_on ? state.auth_proxy_url : null]); }
 function nextAutoDelay() {
   const dates = (state?.accounts || []).map(account => Math.max(autoClaimDue[account.id] || 0, autoClaimCooldown[account.id] || 0));
   return dates.length ? Math.max(1000, Math.min(...dates) - Date.now()) : autoInterval();
@@ -188,7 +189,18 @@ function scheduleAutoClaim(delay = nextAutoDelay()) {
   }, delay);
 }
 function syncAutoSchedule(force = false) {
-  const key = `${state?.auto_claim}:${autoInterval()}:${(state?.accounts || []).map(a => a.id).join(',')}`;
+  const route = claimRouteKey();
+  if (autoScheduleRoute !== null && autoScheduleRoute !== route) {
+    autoAbortRequested = true;
+    preparedDiscoveries.clear();
+    for (const account of state?.accounts || []) {
+      autoClaimDue[account.id] = 0;
+      quotaDue[account.id] = 0;
+      if (account.id !== currentAttempt?.accountId) delete claimable[account.id];
+    }
+  }
+  autoScheduleRoute = route;
+  const key = `${state?.auto_claim}:${autoInterval()}:${route}:${(state?.accounts || []).map(a => a.id).join(',')}`;
   if (!force && key === autoScheduleKey) return;
   autoScheduleKey = key;
   for (const id of Object.keys(autoClaimDue)) autoClaimDue[id] = Math.min(autoClaimDue[id], Date.now() + autoInterval());
@@ -481,7 +493,8 @@ const actions = {
         if (error) {
           toast(t("m.refreshClaimAcctErr", { name: accountName(id), err: stripErr(error?.message || error) }), "err");
         } else {
-          preparedDiscoveries.set(id, { at: Date.now(), value: r });
+          if (r.routeChanged || r.routeKey !== claimRouteKey()) continue;
+          preparedDiscoveries.set(id, { at: Date.now(), route: r.routeKey, value: r });
           if ((r.plans || []).length) { okCount++; autoClaimDue[id] = 0; }
           if (r.activationError) toast(t("m.refreshClaimAcctErr", { name: accountName(id), err: stripErr(r.activationError) }), "warn");
         }
@@ -537,26 +550,29 @@ function stopRefreshTickerIfIdle() {
 }
 
 async function discoverClaimAccount(id, reuse = false) {
+  const route = claimRouteKey();
   claimable[id] = { ...claimable[id], busy: true };
   updateClaimStatus();
   try {
     const prepared = preparedDiscoveries.get(id);
     preparedDiscoveries.delete(id);
-    const r = reuse && prepared && Date.now() - prepared.at < 10_000
+    const r = reuse && prepared?.route === route && Date.now() - prepared.at < 10_000
       ? prepared.value : await invoke("claim_refresh", { id });
+    if (route !== claimRouteKey()) return { plans: [], routeChanged: true };
     claimable[id] = { plans: r.plans || [], err: null, busy: false, timings: { totalMs: r.totalMs, activationMs: r.activationMs, previewMs: r.previewMs } };
     autoClaimDue[id] = Date.now() + autoInterval();
     delete autoClaimCooldown[id];
     delete claimFailures[id];
-    return r;
+    return { ...r, routeKey: route };
   } catch (error) {
+    if (route !== claimRouteKey()) return { plans: [], routeChanged: true };
     const failure = error && typeof error === "object" ? error : { message: String(error) };
     claimable[id] = { ...claimable[id], err: failure.message, busy: false };
     autoClaimDue[id] = 0;
     autoClaimCooldown[id] = claimRetryAt(failure, claimFailures[id] = (claimFailures[id] || 0) + 1);
     recordClaim({ accountId: id, status: "failed", at: Date.now(), code: failure.code ?? "discovery_failed" });
     throw error;
-  } finally { claimable[id].busy = false; }
+  } finally { if (claimable[id]) claimable[id].busy = false; }
 }
 
 async function autoClaimTick() {

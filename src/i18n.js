@@ -41,5 +41,7 @@ export function errCode(e) {
 
 export function stripErr(e) {
   const s = typeof e === "string" ? e : String(e);
+  if (s.includes("service_request_failed")) return t("common.serviceRequestFailed");
+  if (s.includes("service_proxy_settings_failed")) return t("common.serviceSettingsFailed");
   return errCode(e) ? s.replace(/^[a-z_]+:/, "") : s;
 }

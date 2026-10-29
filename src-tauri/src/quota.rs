@@ -346,10 +346,14 @@ pub fn candidate_tokens(creds: &Value, config: Option<&Value>, secret: &str) -> 
 
 fn http_get_json(url: &str, token: &str, retry_429: bool) -> Result<Value, String> {
     let retry_delays = [500u64, 1500, 4000];
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(10))
-        .timeout(Duration::from_secs(20))
-        .build();
+    let agent = if url.starts_with("https://zcode.z.ai/") {
+        crate::service_proxy::agent(Duration::from_secs(20))?
+    } else {
+        ureq::AgentBuilder::new()
+            .timeout_connect(Duration::from_secs(10))
+            .timeout(Duration::from_secs(20))
+            .build()
+    };
     let headers = if url.contains("zcode.z.ai") {
         zai_billing_headers(token)
     } else {
@@ -397,7 +401,11 @@ fn http_get_json(url: &str, token: &str, retry_429: bool) -> Result<Value, Strin
                     .and_then(|v| ["message", "msg", "error"].iter().find_map(|k| v.get(k).and_then(|x| x.as_str()).map(String::from)));
                 return Err(crate::i18n::trf("err.quota.http", &[("code", &code.to_string()), ("msg", &msg.unwrap_or_default())]));
             }
-            Err(e) => return Err(crate::i18n::trf("err.network", &[("e", &e.to_string())])),
+            Err(e) => return Err(if url.starts_with("https://zcode.z.ai/") {
+                "service_request_failed".to_string()
+            } else {
+                crate::i18n::trf("err.network", &[("e", &e.to_string())])
+            }),
         }
     }
 }

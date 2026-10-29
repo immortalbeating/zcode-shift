@@ -3,6 +3,7 @@ const P = (d) => `<path d="${d}"/>`;
 
 // The account actions use the same 24px outline glyphs as AGY·SWITCH.
 const ACCOUNT_ICONS = {
+  accountChevron: P("M6 9l6 6 6-6"),
   accountRefresh: P("M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8") + P("M3 3v5h5")
     + P("M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16") + P("M16 21h5v-5"),
   accountEdit: P("M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"),

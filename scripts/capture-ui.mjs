@@ -15,6 +15,10 @@ const browser = await chromium.launch({ channel: process.platform === 'win32' ? 
 const report = { input: 'Isolated browser viewport and injected IPC fixtures; no desktop input', captures: [] };
 try {
   const cases = [
+    ['workbench-420-zh', 420, 820, 'zh', 'workbench', '/'],
+    ['workbench-360-zh', 360, 820, 'zh', 'workbench', '/'],
+    ['summary-edge-360-zh', 360, 820, 'zh', 'summary-edge', '/'],
+    ['summary-edge-360-en', 360, 820, 'en', 'summary-edge', '/'],
     ['main-360-zh', 360, 820, 'zh', 'accounts', '/'],
     ['main-520-zh', 520, 820, 'zh', 'accounts', '/'],
     ['main-360-en', 360, 820, 'en', 'accounts', '/'],
@@ -44,11 +48,11 @@ try {
     if (scenario !== 'empty' && path === '/') {
       await page.locator('.row').first().waitFor();
       await page.evaluate(() => {
-        for (const id of ['demo-primary', 'demo-secondary', 'demo-long-name']) window.actions.acctQuota(id);
+        for (const row of document.querySelectorAll('.row[data-id]')) window.actions.acctQuota(row.dataset.id);
       });
       if (scenario !== 'loading') {
-        await page.locator(`.row[data-id="demo-primary"] ${scenario === 'scheduled' ? '.scheduled-grant' : '.q-win'}`).first().waitFor();
-        await page.locator('.row[data-id="demo-long-name"] .q-win').first().waitFor();
+        await page.locator(`.row[data-id="demo-primary"] ${['scheduled', 'workbench'].includes(scenario) ? '.scheduled-grant' : scenario === 'summary-edge' ? '.aggregate-quota' : '.q-win'}`).first().waitFor();
+        if (!['workbench', 'summary-edge'].includes(scenario)) await page.locator('.row[data-id="demo-long-name"] .q-win').first().waitFor({ state: 'attached' });
       }
     }
     await page.locator('#splash').waitFor({ state: 'detached' });
@@ -64,6 +68,20 @@ try {
     assert.ok(inspection.renderer && !/SwiftShader|llvmpipe|software/i.test(inspection.renderer),
       `GPU renderer required, received ${inspection.renderer}`);
     assert.deepEqual(errors, [], name);
+    if (scenario === 'error') {
+      assert.match(await page.locator('.row[data-id="demo-secondary"] .account-summary-line').innerText(), /查询失败/);
+      assert.equal(await page.locator('.row[data-id="demo-secondary"] .account-disclosure').getAttribute('aria-expanded'), 'false');
+    }
+    if (scenario === 'summary-edge') {
+      assert.match(await page.locator('.current-account .aggregate-quota').innerText(), /80/);
+      const credit = page.locator('.row[data-id="demo-secondary"]');
+      assert.match(await credit.locator('.account-summary-line').innerText(), /0\.4credit/);
+      assert.equal(await credit.locator('.account-disclosure').getAttribute('aria-expanded'), 'false');
+      await credit.locator('.account-disclosure').click();
+      assert.match(await credit.locator('.q-win-reset').innerText(), /0\.4\/1/);
+      assert.equal(await page.evaluate(() => window.__fixtureCalls.filter(c => c.command === 'switch_to').length), 0);
+      assert.match(await page.locator('.row[data-id="demo-long-name"] .account-sync').innerText(), language === 'zh' ? /刚刚同步/ : /Synced now/);
+    }
     if (path === '/settings.html') {
       assert.deepEqual(await page.locator('.settings-group').evaluateAll(groups => groups.map(group => group.dataset.group)),
         ['general', 'claim', 'switch', 'network', 'library', 'advanced', 'about']);
@@ -85,7 +103,7 @@ try {
         assert.equal(await row.locator('.qbar').count(), 0, 'future grants must not look spendable');
         assert.match(await row.locator('.sg-amount').innerText(), language === 'zh' ? /3亿/ : /300M/);
         assert.match(await row.locator('.sg-status').innerText(), /23:00/);
-        assert.match(await row.locator('.row-meta').innerText(), /2026-10-27 09:00/);
+        assert.match(await row.locator('.quota-expiry').innerText(), /2026-10-27 09:00/);
         const mixed = page.locator('.row[data-id="demo-secondary"]');
         assert.equal(await mixed.locator('.plan-grp').count(), 2, 'existing and future plans stay separate');
         assert.equal(await mixed.locator('.qbar').count(), 2, 'future grant adds no spendable bar');
@@ -104,6 +122,47 @@ try {
         `${name}: toolbar must stay on one row`);
     }
     await page.screenshot({ path: resolve(output, `${name}.png`) });
+    if (scenario === 'workbench') {
+      assert.equal(await page.locator('.current-account .row.active').count(), 1);
+      assert.equal(await page.locator('.switch-accounts .row.compact-account').count(), 5);
+      const row = page.locator('.row[data-id="demo-secondary"]');
+      assert.equal(await row.locator('.account-disclosure').getAttribute('aria-expanded'), 'false');
+      assert.equal(await row.locator('.account-details[hidden]').count(), 1);
+      assert.ok(await row.locator('.row-name').isVisible());
+      assert.ok(await row.locator('.account-summary-line').isVisible());
+      assert.match(await row.locator('.account-summary-line').innerText(), /Start[\s\S]*3亿/);
+      assert.match(await row.locator('.account-sync').innerText(), /1/);
+      const lines = await row.locator('.row-name, .account-summary-line').evaluateAll(els => els.map(el => el.getBoundingClientRect().top));
+      assert.ok(lines[1] > lines[0], 'name and status occupy separate lines');
+      const longRow = page.locator('.row[data-id="demo-long-name"]');
+      assert.ok(await longRow.locator('.row-name').isVisible());
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      await row.locator('.account-disclosure').click();
+      assert.equal(await row.locator('.account-disclosure').getAttribute('aria-expanded'), 'true');
+      assert.equal(await page.evaluate(() => window.__fixtureCalls.filter(c => c.command === 'switch_to').length), 0);
+      await page.evaluate(() => window.actions.refresh());
+      await page.waitForFunction(() => document.querySelector('.row[data-id="demo-secondary"] .account-disclosure')?.getAttribute('aria-expanded') === 'true');
+      assert.equal(await row.locator('.account-details[hidden]').count(), 0);
+      await page.screenshot({ path: resolve(output, `${name}-expanded.png`) });
+      await row.locator('.account-disclosure').focus();
+      await page.keyboard.press('Enter');
+      assert.equal(await row.locator('.account-disclosure').getAttribute('aria-expanded'), 'false');
+      await page.keyboard.press('Space');
+      assert.equal(await row.locator('.account-disclosure').getAttribute('aria-expanded'), 'true');
+      const avatar = await row.locator('.account-avatar').innerHTML();
+      await row.getByRole('button', { name: '重命名', exact: true }).click();
+      await row.locator('.rename-input').fill('合成重命名 001');
+      await row.locator('.rename-input').press('Enter');
+      await page.getByText('合成重命名 001', { exact: true }).waitFor();
+      assert.equal(await row.locator('.account-avatar').innerHTML(), avatar);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      await row.locator('.btn-switch').click();
+      await page.locator('.current-account .row[data-id="demo-secondary"]').waitFor();
+      assert.equal(await page.locator('.switch-accounts .row.compact-account').count(), 5);
+      const calls = await page.evaluate(() => window.__fixtureCalls.filter(c => c.command === 'switch_to'));
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].args.id, 'demo-secondary');
+    }
     if (name === 'main-360-zh') {
       const row = page.locator('.row').first();
       const refresh = row.getByRole('button', { name: '查额度', exact: true });
@@ -207,7 +266,7 @@ try {
         if (status === 'available') {
           await page.locator('[click="actions.openRelease()"]').waitFor();
           await click('actions.openRelease()');
-          await page.waitForFunction(() => window.__fixtureCalls.some(c => c.command === 'open_external' && c.args.url.endsWith('/releases/tag/v1.0.6')));
+          await page.waitForFunction(() => window.__fixtureCalls.some(c => c.command === 'open_external' && c.args.url.endsWith('/releases/tag/v1.0.7')));
         } else {
           const expected = { current: 'latest stable release', unpublished: 'No stable release', error: 'Could not check updates' }[status];
           await page.locator('.settings-about .field-feedback').getByText(expected, { exact: false }).waitFor();

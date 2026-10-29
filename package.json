@@ -1,7 +1,7 @@
 {
   "name": "zcode-shift",
   "private": true,
-  "version": "1.0.5",
+  "version": "1.0.6",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,10 +12,13 @@
     "check:i18n": "node scripts/check-i18n-keys.mjs",
     "test:claim": "node scripts/test-claim-flow.mjs && node scripts/test-claim-automation.mjs",
     "check:syntax": "node scripts/check-syntax.mjs",
-    "test:ui": "node scripts/capture-ui.mjs"
+    "test:ui": "node scripts/capture-ui.mjs",
+    "test:accounts": "node scripts/test-account-avatar.mjs && node scripts/test-account-summary.mjs",
+    "preview:ui": "node scripts/preview-ui.mjs"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.1.1"
+    "@tauri-apps/api": "^2.1.1",
+    "jdenticon": "^3.3.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.1.0",

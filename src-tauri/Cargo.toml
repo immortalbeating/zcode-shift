@@ -1,6 +1,6 @@
 [package]
 name = "zcode-shift"
-version = "1.0.5"
+version = "1.0.6"
 description = "ZCode 账号切换器"
 license = "MIT"
 edition = "2021"

@@ -7,6 +7,8 @@ import { init, t, has, lang, localeTag, stripErr } from "./i18n.js";
 import { name as brandName, mark as brandMark } from "./brand.js";
 import { claimIntervalMs, claimRetryAt, discoverAccounts } from "./claim-automation.js";
 import { claimSnapshot, claimProgress, recordClaim } from "./claim-monitor.js";
+import { avatarSvg } from "./account-avatar.js";
+import { accountSummary, syncAge } from "./account-summary.js";
 
 const $app = document.getElementById("app");
 let state = null;
@@ -34,13 +36,7 @@ let autoToggleBusy = false;
 let autoClaimDue = {}, claimFailures = {};
 let autoClaimTimer = null, autoScheduleKey = "", autoScheduleRoute = null, currentAttempt = null;
 const preparedDiscoveries = new Map();
-
-const NOTCH_COLORS = ["var(--notch-1)", "var(--notch-2)", "var(--notch-3)", "var(--notch-4)", "var(--notch-5)", "var(--notch-6)"];
-function notchColor(id) {
-  let h = 0;
-  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return NOTCH_COLORS[h % NOTCH_COLORS.length];
-}
+const expandedAccounts = new Set();
 
 function fmtNum(v) {
   if (v == null) return t("q.unknown");
@@ -85,13 +81,13 @@ async function guard(fn) {
 async function loadAcctQuota(id) {
   const cur = acctQuota[id] || {};
   if (cur.busy) return;
-  acctQuota[id] = { busy: true };
+  acctQuota[id] = { ...cur, busy: true };
   if (!uiLocked()) render();
   try {
     const data = await invoke("get_account_quota", { id });
-    acctQuota[id] = { data, err: null, busy: false };
+    acctQuota[id] = { data, receivedAt: Date.now(), err: null, busy: false };
   } catch (e) {
-    acctQuota[id] = { data: null, err: stripErr(e), busy: false };
+    acctQuota[id] = { ...cur, err: stripErr(e), busy: false };
   }
   if (!uiLocked()) render();
 }
@@ -238,6 +234,13 @@ function autoPillTitle(s) {
 
 const actions = {
   async refresh() { await refresh(); render(); },
+
+  toggleDetails(id) {
+    if (expandedAccounts.has(id)) expandedAccounts.delete(id);
+    else expandedAccounts.add(id);
+    render();
+    $app.querySelector(`.row[data-id="${CSS.escape(id)}"] .account-disclosure`)?.focus({ preventScroll: true });
+  },
 
   async capture() {
     await guard(async () => {
@@ -704,8 +707,17 @@ function fmtTokens(n) {
   if (n >= 1e3) return Math.round(n / 1e3) + "K";
   return String(Math.round(n));
 }
+function fmtQuantity(n, unit) {
+  return !unit || /^tokens?$/i.test(unit) ? fmtTokens(n)
+    : new Intl.NumberFormat(localeTag(), { maximumSignificantDigits: 6 }).format(n);
+}
+
+function aggregateQuotaHtml(plan) {
+  return Number.isFinite(plan?.remaining) && !(plan.items || []).length
+    ? `<div class="aggregate-quota"><span>${t("q.balanceRemaining")}</span><strong>${esc(new Intl.NumberFormat(localeTag(), { maximumSignificantDigits: 6 }).format(plan.remaining))}</strong></div>` : "";
+}
 function balRowHtml(it) {
-  const rem = it.total != null && it.remaining != null ? `${fmtTokens(it.remaining)}/${fmtTokens(it.total)}` : "";
+  const rem = it.total != null && it.remaining != null ? `${fmtQuantity(it.remaining, it.unit)}/${fmtQuantity(it.total, it.unit)}` : "";
   const label = it.name.replace(/^GLM-?/i, "");
   return `
   <div class="q-win mini">
@@ -804,6 +816,7 @@ function planGroupHtml(p) {
       ${exp ? `<span class="pg-exp${exp.warn ? " warn-line" : ""}" title="${esc(t("q.validUntil", { date: exp.text }))}">${esc(t("q.validUntilShort", { date: exp.text }))}</span>` : ""}
     </div>
     ${slotRowsHtml(p.items)}
+    ${aggregateQuotaHtml(p)}
     ${scheduledGrantsHtml(p)}
   </div>`;
 }
@@ -815,10 +828,10 @@ function scheduledGrantsHtml(plan) {
     const time = new Intl.DateTimeFormat(localeTag(), {
       month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
     }).format(date);
-    const amount = `${fmtTokens(grant.units)} ${grant.unit === "token" ? "Token" : grant.unit}`;
+    const amount = `${fmtQuantity(grant.units, grant.unit)} ${grant.unit === "token" ? "Token" : grant.unit}`;
     return `<div class="scheduled-grant" title="${esc(t("q.scheduledGrantHint"))}">
       <span class="sg-model">${esc(grant.name)}</span><span class="sg-amount">${esc(amount)}</span>
-      <span class="sg-status">${esc(t("q.scheduledGrant", { date: time }))}</span>
+      <span class="sg-status">${esc(grant.effective_at <= Date.now() ? t("q.summary.awaitingRefresh") : t("q.scheduledGrant", { date: time }))}</span>
     </div>`;
   }).join("");
 }
@@ -847,14 +860,111 @@ function acctQuotaSlot(id) {
       }
       if (plan) {
         const label = plan.name || plan.tier || "";
+        const exp = expireInfo(plan.expire);
         inner = `${label ? `<div class="pg-name single-plan-name" title="${esc(label)}">${esc(label)}</div>` : ""}
-          ${inner}${scheduledGrantsHtml(plan)}
-          ${!items.length && !(plan.scheduled_grants || []).length ? `<span class="aq-loading">${t("q.awaitingQuota")}</span>` : ""}`;
+          ${inner}${aggregateQuotaHtml(plan)}${scheduledGrantsHtml(plan)}
+          ${exp ? `<div class="quota-expiry">${esc(t("q.validUntil", { date: plan.expire }))}</div>` : ""}
+          ${(plan.scheduled_grants || []).length ? `<div class="quota-hint">${esc(t("q.scheduledGrantHint"))}</div>` : ""}
+          ${!items.length && !Number.isFinite(plan.remaining) && !(plan.scheduled_grants || []).length ? `<span class="aq-loading">${t("q.awaitingQuota")}</span>` : ""}`;
+      } else if (!inner) {
+        inner = aggregateQuotaHtml(q.data) || `<span class="aq-loading">${t("q.summary.empty")}</span>`;
       }
     }
   }
   if (!strip && !inner) return `<div class="row-quota-slot"></div>`;
   return `<div class="row-quota-slot">${strip}${inner}</div>`;
+}
+
+function accountAvatarHtml(id) {
+  return `<span class="account-avatar" aria-hidden="true">${avatarSvg(id)}</span>`;
+}
+
+function accountActionsHtml(id) {
+  return `<div class="row-actions">
+    <button class="icon-btn-ghost" data-tip="${t("btn.quota")}" aria-label="${t("btn.quota")}" click="actions.acctQuota('${id}')">${ic("accountRefresh", 16)}</button>
+    <button class="icon-btn-ghost" data-tip="${t("btn.rename")}" aria-label="${t("btn.rename")}" click="actions.rename('${id}')">${ic("accountEdit", 16)}</button>
+    <button class="icon-btn-ghost" data-tip="${t("btn.export")}" aria-label="${t("btn.export")}" click="actions.exportOne('${id}')">${ic("accountExport", 16)}</button>
+    <button class="icon-btn-ghost danger" data-tip="${t("btn.delete")}" aria-label="${t("btn.delete")}" click="actions.delete('${id}')">${ic("accountDelete", 16)}</button>
+  </div>`;
+}
+
+function accountSyncHtml(id) {
+  const q = acctQuota[id];
+  const stamp = Number(q?.data?.refreshed_at) || q?.receivedAt || null;
+  const age = syncAge(stamp);
+  const text = q?.busy ? t("q.sync.busy") : t(`q.sync.${age.kind}`, { count: age.count });
+  const title = stamp ? new Date(stamp).toLocaleString(localeTag()) : t("q.sync.unknown");
+  return `<span class="account-sync" title="${esc(title)}">${esc(text)}</span>`;
+}
+
+function accountSummaryHtml(a) {
+  const summary = accountSummary(a, acctQuota[a.id], claimable[a.id]);
+  let text;
+  if (summary.kind === "scheduled") text = t("q.summary.scheduled", { model: summary.grant.name.replace(/^GLM-?/i, ""), amount: fmtQuantity(summary.grant.units, summary.grant.unit),
+    unit: summary.grant.unit === "token" ? "" : summary.grant.unit });
+  else if (summary.kind === "balance") text = t("q.summary.balance", {
+    model: summary.item.name.replace(/^GLM-?/i, ""), amount: fmtQuantity(summary.item.remaining, summary.item.unit),
+    unit: summary.item.unit && summary.item.unit !== "token" ? summary.item.unit : "",
+  });
+  else if (summary.kind === "aggregate") text = t("q.summary.aggregate", { amount: new Intl.NumberFormat(localeTag(), { maximumSignificantDigits: 6 }).format(summary.remaining) });
+  else if (summary.kind === "window") text = t("q.summary.window", { window: windowLabel(summary.item), amount: Math.floor(summary.remaining) });
+  else text = t(`q.summary.${summary.kind}`);
+  const tier = summary.tier === "trial" ? t("q.trial") : summary.tier.replace(/^(start|max|pro|lite)$/i, s => s[0].toUpperCase() + s.slice(1));
+  return `<span class="account-summary-line ${summary.tone}" title="${esc(summary.detail || text)}">${tier ? `<span class="summary-tier">${esc(tier)}</span><span class="summary-dot" aria-hidden="true">·</span>` : ""}<span class="summary-state">${esc(text)}</span></span>`;
+}
+
+function accountRowHtml(a, featured = false) {
+  const open = expandedAccounts.has(a.id);
+  const cls = featured ? " active current-row" : " compact-account";
+  if (renaming === a.id) return `<article class="row${cls}" data-id="${a.id}">
+    <div class="row-rename-line">${accountAvatarHtml(a.id)}
+      <input class="rename-input" value="${esc(a.name)}" maxlength="40" aria-label="${t("btn.rename")}"
+        keydown="onRenameKey(event,'${a.id}')" blur="actions.deferCancelRename('${a.id}')">
+      <div class="row-rename-actions">
+        <button class="btn-ghost rename-btn" click="actions.doRename('${a.id}')">${t("common.save")}</button>
+        <button class="btn-ghost rename-btn" click="actions.cancelRename()">${t("common.cancel")}</button>
+      </div>
+    </div><div class="row-meta">${t("btn.renameMeta")}</div></article>`;
+
+  const identity = [...new Set([a.identity?.username, a.identity?.email].filter(Boolean))].join(" · ");
+  const meta = `${!a.has_config ? `<span class="no-cfg">${t("q.noCfg")}</span>` : ""}
+    ${identity ? `<span class="account-identity">${esc(identity)}</span>` : ""}
+    ${a.has_user_info === false ? `<span class="tag-relogin" title="${esc(t("btn.reloginTitle"))}">${t("btn.relogin")}</span>` : ""}`;
+  if (featured) return `<article class="row${cls}" data-id="${a.id}">
+    <div class="row-header">
+      ${accountAvatarHtml(a.id)}
+      <div class="current-account-copy"><span class="row-name" title="${esc(a.name)}">${esc(a.name)}</span>
+        <div class="current-account-tier">${tierBadgeFor(a.id)}<span>${esc(a.identity?.provider === "zai" ? "z.ai" : a.identity?.provider || "")}</span></div>
+      </div>
+      <span class="tag-use-pill">${ic("check", 12)} ${t("btn.inUse")}</span>
+    </div>
+    <div class="row-meta">${meta}</div>
+    ${acctQuotaSlot(a.id)}
+    <div class="account-detail-footer">${accountSyncHtml(a.id)}${accountActionsHtml(a.id)}</div>
+  </article>`;
+
+  const displayName = esc(a.name).replace(/(\d{3,})(?=@|$)/, '<b class="account-name-suffix">$1</b>');
+  return `<article class="row${cls}${open ? " expanded" : ""}" data-id="${a.id}">
+    <div class="account-overview">
+      <button class="account-disclosure" aria-expanded="${open}" aria-controls="account-detail-${a.id}"
+        aria-label="${esc(t("m.accountDetails", { name: a.name }))}" click="actions.toggleDetails('${a.id}')">
+        ${accountAvatarHtml(a.id)}
+        <span class="account-summary-copy">
+          <span class="row-title-wrap"><span class="row-name" title="${esc(a.name)}">${displayName}</span>${ic("accountChevron", 14, "account-chevron")}</span>
+          ${accountSummaryHtml(a)}
+        </span>
+      </button>
+      <div class="account-switch-column">
+        <button class="btn-switch has-ic" aria-label="${esc(t("m.switchAccount", { name: a.name }))}" click="actions.askSwitch('${a.id}')">${ic("swap", 13)}<span>${t("btn.switch")}</span></button>
+        ${accountSyncHtml(a.id)}
+      </div>
+    </div>
+    <div class="account-details" id="account-detail-${a.id}" ${open ? "" : "hidden"}>
+      <div class="row-meta">${meta}</div>
+      ${acctQuotaSlot(a.id)}
+      <div class="account-detail-footer">${accountActionsHtml(a.id)}</div>
+    </div>
+  </article>`;
 }
 
 function captureScroll() {
@@ -883,6 +993,7 @@ function restoreScroll(cap) {
 
 function render() {
   const scrollCap = captureScroll();
+  const focusAction = $app.contains(document.activeElement) ? document.activeElement.getAttribute("click") : null;
   if (!state) {
     $app.innerHTML = `<div class="loading">LOADING</div>`;
     return;
@@ -898,67 +1009,18 @@ function render() {
       ? unsaved ? t("m.status.unsaved") : t("m.status.safe")
       : t("m.status.loggedOut");
 
-  const rows = s.accounts.map((a) => {
-    const isActive = a.is_active;
-    if (renaming === a.id) {
-      return `
-      <div class="row${isActive ? " active" : ""}" data-id="${a.id}">
-        <div class="row-rename-line">
-          <span class="account-avatar" aria-hidden="true" style="background:${notchColor(a.id)}">${esc(Array.from(a.name.trim() || "?")[0].toLocaleUpperCase())}</span>
-          <input class="rename-input" value="${esc(a.name)}" maxlength="40"
-            keydown="onRenameKey(event,'${a.id}')" blur="actions.deferCancelRename('${a.id}')">
-          <div class="row-rename-actions">
-            <button class="btn-ghost rename-btn" click="actions.doRename('${a.id}')">${t("common.save")}</button>
-            <button class="btn-ghost rename-btn" click="actions.cancelRename()">${t("common.cancel")}</button>
-          </div>
-        </div>
-        <div class="row-meta" style="margin-top:4px">${t("btn.renameMeta")}</div>
-      </div>`;
-    }
-    const ident = [a.identity?.username, a.identity?.email].filter(Boolean).join(" · ");
-    const q = acctQuota[a.id];
-    let meta = "";
-    if (!a.has_config) meta += `<span class="no-cfg">${t("q.noCfg")}</span>`;
-    const exp = expireInfo(q?.data?.plan_expire);
-    if (exp) {
-        meta += `<span class="${exp.warn ? "warn-line" : ""}">${esc(t("q.validUntil", { date: exp.text }))}</span>`;
-    }
-    if (ident) meta += `${meta ? " · " : ""}${esc(ident)}`;
-    return `
-    <div class="row${isActive ? " active" : ""}" data-id="${a.id}">
-      <div class="row-header">
-        <div class="row-title-wrap">
-          <span class="account-avatar" aria-hidden="true" style="background:${notchColor(a.id)}">${esc(Array.from(a.name.trim() || "?")[0].toLocaleUpperCase())}</span>
-          <span class="row-name" title="${esc(a.name)}">${esc(a.name)}</span>
-          ${tierBadgeFor(a.id)}
-          ${a.has_user_info === false ? `<span class="tag-relogin" title="${esc(t("btn.reloginTitle"))}">${t("btn.relogin")}</span>` : ""}
-        </div>
-        <div class="row-switch-wrap">
-          ${isActive
-            ? `<span class="tag-use-pill">${ic("check", 12)} ${t("btn.inUse")}</span>`
-            : `<button class="btn-switch has-ic" click="actions.askSwitch('${a.id}')">${ic("swap", 12)} <span>${t("btn.switch")}</span></button>`}
-        </div>
-      </div>
-      <div class="row-subline">
-        <div class="row-meta" title="${esc(meta.replace(/<[^>]+>/g, ""))}">${meta}</div>
-        <div class="row-actions">
-          <button class="icon-btn-ghost" data-tip="${t("btn.quota")}" aria-label="${t("btn.quota")}" click="actions.acctQuota('${a.id}')">${ic("accountRefresh", 14)}</button>
-          <button class="icon-btn-ghost" data-tip="${t("btn.rename")}" aria-label="${t("btn.rename")}" click="actions.rename('${a.id}')">${ic("accountEdit", 14)}</button>
-          <button class="icon-btn-ghost" data-tip="${t("btn.export")}" aria-label="${t("btn.export")}" click="actions.exportOne('${a.id}')">${ic("accountExport", 14)}</button>
-          <button class="icon-btn-ghost danger" data-tip="${t("btn.delete")}" aria-label="${t("btn.delete")}" click="actions.delete('${a.id}')">${ic("accountDelete", 14)}</button>
-        </div>
-      </div>
-      ${acctQuotaSlot(a.id)}
-    </div>`;
-  }).join("");
-
+  const others = s.accounts.filter(a => !a.is_active);
+  for (const id of expandedAccounts) if (!s.accounts.some(a => a.id === id)) expandedAccounts.delete(id);
   const listHtml = s.accounts.length === 0
-    ? `<div class="empty">
-         <div class="glyph">${ic("empty", 34)}</div>
-         ${t("m.emptyTitle")}<br>
-         ${t("m.emptyBody")}
-       </div>`
-    : rows;
+    ? `<div class="empty"><div class="glyph">${ic("empty", 34)}</div>${t("m.emptyTitle")}<br>${t("m.emptyBody")}</div>`
+    : `${active ? `<section class="current-account" aria-labelledby="current-heading">
+        <div class="section-head"><h2 id="current-heading">${t("m.currentAccount")}</h2></div>${accountRowHtml(active, true)}
+      </section>` : unsaved ? `<div class="unsaved-account-note">${ic("alert", 15)}${t("m.status.unsaved")}</div>` : ""}
+      ${others.length ? `<section class="switch-accounts" aria-labelledby="switch-heading">
+        <div class="section-head"><h2 id="switch-heading">${t("m.switchAccounts")}</h2><span class="count">${t("m.count", { count: others.length })}</span></div>
+        <p class="account-list-hint">${t("m.expandHint")}</p>
+        <div class="account-rows">${others.map(a => accountRowHtml(a)).join("")}</div>
+      </section>` : ""}`;
 
   const claimableCount = s.accounts.filter((a) => (claimable[a.id]?.plans || []).length > 0).length;
 
@@ -1012,14 +1074,12 @@ function render() {
 
     <div id="claim-status" class="claim-status" role="status">${claimStatusHtml()}</div>
 
-    <div class="section-head">
-      <h2>${t("m.accounts")}</h2>
-      <span class="count">${t("m.count", { count: s.accounts.length })}</span>
-    </div>
-
     <main class="list">${listHtml}</main>
   `;
   restoreScroll(scrollCap);
+  if (focusAction) {
+    [...$app.querySelectorAll("button[click]")].find(button => button.getAttribute("click") === focusAction)?.focus({ preventScroll: true });
+  }
 }
 
 window.actions = actions;

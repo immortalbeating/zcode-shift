@@ -1,13 +1,23 @@
 // Synthetic IPC adapter for browser-only checks. Never reads local accounts.
 export function installFixture({ language = 'zh', scenario = 'accounts' } = {}) {
-  const accounts = [
+  if (scenario === 'scheduled') Date.now = () => 1793026800000 - 3600000;
+  if (scenario === 'workbench') Date.now = () => Date.parse('2026-10-29T12:50:00Z');
+  const accountRows = scenario === 'workbench' ? [
+    ['demo-primary', '合成主账号', null],
+    ['demo-secondary', '合成备用账号 001', null],
+    ['demo-long-name', '用于验证很长的合成账号名称是否可以正确截断的测试账号 002', null],
+    ['demo-four', '合成账号 003', null],
+    ['demo-five', '合成账号 004', null],
+    ['demo-six', '合成账号 005', null],
+  ] : [
     ['demo-primary', '日常开发', 'demo@example.invalid'],
     ['demo-secondary', '备用账号', 'backup@example.invalid'],
     ['demo-long-name', '用于验证很长的账号名称是否可以正确截断的测试账号', 'long-name@example.invalid'],
-  ].map(([id, name, email], index) => ({ id, name, created_at: '2026-10-25 09:30',
+  ];
+  const accounts = accountRows.map(([id, name, email], index) => ({ id, name, created_at: '2026-10-25 09:30',
     updated_at: '2026-10-25 09:30', is_active: index === 0, has_config: true,
     has_user_info: true, identity: { provider: 'zai', email } }));
-  const state = { zcode_running: scenario === 'running', live_exists: true, live_logged_in: true,
+  const state = { zcode_running: ['running', 'workbench'].includes(scenario), live_exists: true, live_logged_in: true,
     active_account_id: 'demo-primary', accounts: scenario === 'empty' ? [] : accounts,
     zcode_path: 'C:\\Apps\\ZCode\\ZCode.exe', zcode_path_ok: true,
     store_dir: '<synthetic fixture>', launch_after_switch: true, close_to_tray: true,
@@ -21,6 +31,25 @@ export function installFixture({ language = 'zh', scenario = 'accounts' } = {}) 
   let autostartEnabled = false;
   let callbackId = 0;
   const quota = id => {
+    if (scenario === 'workbench') {
+      const index = accounts.findIndex(account => account.id === id);
+      return { is_empty: true, source: 'synthetic-fixture', refreshed_at: Date.now() - (index % 3) * 60000,
+        plan_tier: 'Start', items: [], plans: [{ name: 'ZCODE GLOBAL BUILD', plan_id: 'demo-global-build',
+          tier: 'Start', tier_code: 'start', expire: '2026-10-30 09:00', items: [],
+          scheduled_grants: [{ name: 'GLM-5.3-Flash', units: 300000000, unit: 'token',
+            effective_at: Date.parse('2026-10-29T15:00:00Z') }] }] };
+    }
+    if (scenario === 'summary-edge') {
+      if (id === 'demo-primary') return { refreshed_at: Date.now(), plan_tier: 'Max', remaining: 80,
+        items: [{ name: 'Flash', remaining: 0, total: 100, percent_used: 100 }], plans: [
+          { tier: 'Start', tier_code: 'start', items: [{ name: 'Flash', remaining: 0, total: 100, percent_used: 100 }] },
+          { name: 'Synthetic scalar balance', tier: 'Max', tier_code: 'max', total: 100, remaining: 80, items: [] },
+        ] };
+      if (id === 'demo-secondary') return { refreshed_at: Date.now(), plan_tier: 'Pro', plans: [{ tier: 'Pro', tier_code: 'pro',
+        items: [{ name: 'Credits', unit: 'credit', total: 1, remaining: 0.4, percent_used: 60 }] }],
+        items: [{ name: 'Credits', unit: 'credit', total: 1, remaining: 0.4, percent_used: 60 }] };
+      return { refreshed_at: 0, items: [], plans: [] };
+    }
     if (id === 'demo-primary' && ['scheduled', 'global-active'].includes(scenario)) {
       const scheduled = scenario === 'scheduled';
       const items = scheduled ? [] : [{ name: 'GLM-5.3-Flash', total: 300000000,
@@ -67,7 +96,7 @@ export function installFixture({ language = 'zh', scenario = 'accounts' } = {}) 
       window.__fixtureCalls.push({ command, args });
       if (command === 'plugin:event|listen') { listeners.set(args.event, args.handler); return args.handler; }
       if (command === 'plugin:event|unlisten') return;
-      if (command === 'app_version') return '1.0.5';
+      if (command === 'app_version') return '1.0.6';
       if (command === 'get_state') return structuredClone(state);
       if (command === 'get_account_quota') {
         if (scenario === 'loading') return new Promise(() => {});
@@ -90,10 +119,18 @@ export function installFixture({ language = 'zh', scenario = 'accounts' } = {}) 
       if (command === 'check_updates') {
         const status = window.__fixtureControl.updateStatus;
         if (status === 'error') throw Error('update_network_failed');
-        return { status, currentVersion: '1.0.5', latestVersion: status === 'unpublished' ? null : 'v1.0.6', releaseUrl: status === 'available' ? 'https://github.com/immortalbeating/zcode-shift/releases/tag/v1.0.6' : null };
+        return { status, currentVersion: '1.0.6', latestVersion: status === 'unpublished' ? null : 'v1.0.7', releaseUrl: status === 'available' ? 'https://github.com/immortalbeating/zcode-shift/releases/tag/v1.0.7' : null };
       }
       if (command === 'autostart_set') { autostartEnabled = args.enable; return autostartEnabled; }
       if (['pick_zcode_path', 'import_pick_files', 'export_all_pick_path'].includes(command)) return {picked: false};
+      if (command === 'switch_to') {
+        const selected = accounts.find(account => account.id === args.id);
+        if (!selected) throw Error('unknown synthetic account');
+        const already_active = state.active_account_id === args.id;
+        state.active_account_id = args.id;
+        for (const account of accounts) account.is_active = account.id === args.id;
+        return { name: selected.name, already_active, hot: false, killed: false, launched: false };
+      }
       if (command === 'rename_account') {
         accounts.find(a => a.id === args.id).name = args.name;
         return { id: args.id, name: args.name };

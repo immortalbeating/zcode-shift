@@ -16,6 +16,8 @@ The main window shows the current claim stage and next check. Settings keep the 
 
 Executable paths support auto-detection, validation, and restoring automatic lookup. Path and proxy drafts survive other settings changes. Proxy testing checks port reachability only. Update checks query this repository's stable GitHub releases without downloading or installing anything; an unpublished release is reported explicitly.
 
+Sign-in proxy and ZCode service proxy have separate switches and share the saved address. The service switch is off by default and accepts an HTTP proxy for offer discovery, activation, claims, verification configuration, and ZCode balances. This keeps those requests on one route when an account's offers differ by network exit. Proxy failures are reported without silently falling back to a direct connection. BigModel monitoring and GitHub updates are unchanged.
+
 ![Z·SHIFT — synthetic demonstration data](docs/screenshot.png)
 
 ## Development

@@ -8,6 +8,8 @@ This version also repairs event-claim verification, discovers explicit claim act
 
 Claimed grants scheduled for later show their amount, start time, and expiry. Spendable balances remain based on the server's balance buckets; future grants are not counted as available tokens.
 
+The current account shows full details above compact two-line alternatives. Expand a name to inspect quotas; switching uses its own button. Jdenticon avatars are generated locally from stable account IDs and survive renaming. Status summaries and sync times come from actual query results.
+
 Settings are grouped into General, Offer claims, Account switching, Sign-in & network, Account data, Advanced, and About. Low-frequency options and detailed explanations can be expanded when needed.
 
 Offer checks run every 2, 5, or 10 minutes (default: 5). Discovery overlaps for up to two accounts, while claims and official verification remain serial. Empty accounts add no fixed wait. A credential- and device-bound preview cache lasts 10 seconds and is invalidated on submission. Failures use categorized backoff and respect server cooldowns.
@@ -30,12 +32,16 @@ npm run tauri dev
 npm run check:syntax
 npm run check:i18n
 npm run test:claim
+npm run test:accounts
+npm run test:ui
 npm run build
 cargo test --locked --lib --manifest-path src-tauri/Cargo.toml
 npm run tauri build
 ```
 
 Windows is locally verified. Other platform status is reported by CI. Account data stays in `~/.zcode-switch/` for compatibility. Do not run multiple tools against the same account operation concurrently.
+
+`npm run preview:ui` starts a synthetic-account preview without reading local account files. Start the actual app through Tauri.
 
 `npm run test:ui` checks synthetic IPC fixtures in isolated GPU-rendered browser viewports. It uses system Edge on Windows and Playwright Chromium elsewhere. It does not read account files or inject desktop input. Install Chromium with `npx playwright install chromium` when needed.
 

@@ -12,6 +12,8 @@ ZCode 多账号切换与额度查看工具。保留紧凑的桌面操作方式�
 
 - 保存、重命名、导入、导出及切换 ZCode 登录身份。
 - 按账号查看套餐、各模型剩余额度和重置时间。
+- 当前账号展示完整额度，其余账号使用两行摘要；点击名称或箭头展开明细，右侧按钮独立切换。
+- 几何头像由账号 ID 在本地生成，改名不改变图案；摘要和同步时间取真实查询结果。
 - 手动或自动领取当前可领取活动；自动领取默认关闭，开启后定期检测。
 - 已领取但尚未生效的活动显示赠送额度、生效时间和到期时间；可用余额按服务端实际返回显示。
 - 界面支持中文与英文；托盘、开机自启、登录代理和 CLI 保留。
@@ -50,12 +52,16 @@ npm run tauri dev
 npm run check:syntax
 npm run check:i18n
 npm run test:claim
+npm run test:accounts
+npm run test:ui
 npm run build
 cargo test --locked --lib --manifest-path src-tauri/Cargo.toml
 npm run tauri build
 ```
 
 `npm run dist` 生成 Windows 安装包和便携版，产物位于 `release/`。`app-icon.svg` 是图标源文件；执行 `node scripts/generate-icons.mjs` 生成平台图标。
+
+`npm run preview:ui` 启动只含合成账号的界面预览，不读取本机账号库。实际应用仍通过 Tauri 启动。
 
 ## 界面验证
 

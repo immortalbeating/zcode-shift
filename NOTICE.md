@@ -9,3 +9,5 @@ Z·SHIFT（ZCode Shift）基于 https://github.com/pjpv/zcode-switch 独立维�
 - 当前维护仓库：https://github.com/immortalbeating/zcode-shift
 
 本仓库新增贡献采用 MIT 许可证。
+
+账号几何头像使用 Jdenticon 3.3.0（MIT，Copyright 2014–2024 Daniel Mester Pirttijärvi）。完整许可包含在 `public/third-party-notices.txt`，构建时一并嵌入应用资源。
